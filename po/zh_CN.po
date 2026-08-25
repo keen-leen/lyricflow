@@ -1,0 +1,126 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: LyricFlow 0.1.0\n"
+"Language: zh_CN\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Previous"
+msgstr "上一首"
+
+msgid "Play or pause"
+msgstr "播放或暂停"
+
+msgid "Next"
+msgstr "下一首"
+
+msgid "Search again"
+msgstr "重新搜索"
+
+msgid "Reset lyrics offset"
+msgstr "重置歌词偏移"
+
+msgid "Preferences"
+msgstr "设置"
+
+msgid "Unknown title"
+msgstr "未知歌曲"
+
+msgid "Unknown artist"
+msgstr "未知歌手"
+
+msgid "Searching for lyrics…"
+msgstr "正在搜索歌词…"
+
+msgid "Instrumental track"
+msgstr "纯音乐"
+
+msgid "No lyrics found"
+msgstr "未找到歌词"
+
+msgid "Could not load lyrics"
+msgstr "无法加载歌词"
+
+msgid "Unsynchronized lyrics"
+msgstr "非同步歌词"
+
+msgid "Offline lyrics cache"
+msgstr "离线歌词缓存"
+
+msgid "Choose the correct lyrics"
+msgstr "请选择正确的歌词"
+
+msgid "LyricFlow"
+msgstr "LyricFlow"
+
+msgid "Top bar"
+msgstr "顶栏"
+
+msgid "Choose how synchronized lyrics appear in the GNOME top bar."
+msgstr "设置同步歌词在 GNOME 顶栏中的显示方式。"
+
+msgid "Show synchronized lyrics"
+msgstr "显示同步歌词"
+
+msgid "Fall back to the song title when timed lyrics are unavailable."
+msgstr "没有时间轴歌词时回退显示歌曲信息。"
+
+msgid "Left"
+msgstr "左侧"
+
+msgid "Center"
+msgstr "中间"
+
+msgid "Right"
+msgstr "右侧"
+
+msgid "Position"
+msgstr "位置"
+
+msgid "Maximum width"
+msgstr "最大宽度"
+
+msgid "pixels"
+msgstr "像素"
+
+msgid "Font scale"
+msgstr "字体缩放"
+
+msgid "Marquee speed"
+msgstr "长歌词滚动速度"
+
+msgid "pixels per second"
+msgstr "像素/秒"
+
+msgid "Track information duration"
+msgstr "歌曲信息显示时长"
+
+msgid "seconds"
+msgstr "秒"
+
+msgid "Lyrics timing"
+msgstr "歌词时间"
+
+msgid "A positive offset shows lyrics earlier; a negative offset shows them later."
+msgstr "正值会让歌词提前显示，负值会让歌词延后显示。"
+
+msgid "Global offset"
+msgstr "全局偏移"
+
+msgid "milliseconds"
+msgstr "毫秒"
+
+msgid "Reset timing offset"
+msgstr "重置时间偏移"
+
+msgid "Restore the default value of 0 milliseconds."
+msgstr "恢复为默认的 0 毫秒。"
+
+msgid "Reset"
+msgstr "重置"
+
+msgid "Lyrics service"
+msgstr "歌词服务"
+
+msgid "Song title, artist, album, and duration are sent to LRCLIB when lyrics are requested. No account or credential is used."
+msgstr "请求歌词时会向 LRCLIB 发送歌名、歌手、专辑和时长，不会使用账户或凭据。"

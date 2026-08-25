@@ -1,0 +1,126 @@
+.lyricflow-indicator {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.lyricflow-indicator:paused .lyricflow-panel-label {
+  opacity: 0.58;
+}
+
+.lyricflow-panel-label {
+  font-weight: 600;
+  text-align: center;
+}
+
+.lyricflow-menu-item {
+  padding: 0;
+}
+
+.lyricflow-card {
+  width: 420px;
+  padding: 18px;
+  spacing: 12px;
+}
+
+.lyricflow-header {
+  spacing: 14px;
+}
+
+.lyricflow-artwork {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  background-color: rgba(127, 127, 127, 0.16);
+}
+
+.lyricflow-artwork-fallback {
+  color: rgba(127, 127, 127, 0.8);
+}
+
+.lyricflow-metadata {
+  spacing: 3px;
+  padding-top: 5px;
+}
+
+.lyricflow-title {
+  font-size: 1.15em;
+  font-weight: 700;
+}
+
+.lyricflow-artist {
+  font-weight: 500;
+}
+
+.lyricflow-player,
+.lyricflow-status,
+.lyricflow-offset {
+  color: rgba(127, 127, 127, 0.95);
+  font-size: 0.88em;
+}
+
+.lyricflow-progress {
+  height: 18px;
+  -barlevel-height: 4px;
+}
+
+.lyricflow-controls {
+  spacing: 14px;
+}
+
+.lyricflow-icon-button {
+  border-radius: 999px;
+  padding: 8px;
+}
+
+.lyricflow-play-button {
+  background-color: -st-accent-color;
+  color: -st-accent-fg-color;
+  padding: 10px;
+}
+
+.lyricflow-lyric-actions {
+  spacing: 7px;
+}
+
+.lyricflow-text-button {
+  padding: 5px 8px;
+  font-size: 0.85em;
+}
+
+.lyricflow-offset {
+  min-width: 60px;
+  text-align: center;
+}
+
+.lyricflow-scroll {
+  height: 330px;
+}
+
+.lyricflow-lyrics {
+  spacing: 5px;
+  padding: 110px 10px;
+}
+
+.lyricflow-line {
+  padding: 7px 8px;
+  color: rgba(127, 127, 127, 0.88);
+  text-align: center;
+  font-size: 1.02em;
+}
+
+.lyricflow-line.active {
+  color: inherit;
+  font-size: 1.18em;
+  font-weight: 700;
+}
+
+.lyricflow-candidate {
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 5px;
+  background-color: rgba(127, 127, 127, 0.12);
+}
+
+.lyricflow-preferences-button {
+  margin-top: 2px;
+}

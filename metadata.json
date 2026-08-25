@@ -1,0 +1,9 @@
+{
+  "uuid": "lyricflow@keen.local",
+  "name": "LyricFlow",
+  "description": "Show synchronized lyrics and media controls in the GNOME top bar.",
+  "shell-version": ["50"],
+  "settings-schema": "org.gnome.shell.extensions.lyricflow",
+  "gettext-domain": "lyricflow",
+  "url": "https://github.com/keen/lyricflow"
+}

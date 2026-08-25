@@ -1,0 +1,28 @@
+# Node.js / TypeScript
+node_modules/
+dist/
+.test-dist/
+coverage/
+*.tsbuildinfo
+
+# GNOME extension generated files
+schemas/gschemas.compiled
+locale/
+*.mo
+lyricflow@keen.local.zip
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

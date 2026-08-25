@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.lyricflow" path="/org/gnome/shell/extensions/lyricflow/">
+    <key name="panel-position" type="s">
+      <default>'center'</default>
+      <choices>
+        <choice value="left"/>
+        <choice value="center"/>
+        <choice value="right"/>
+      </choices>
+      <summary>Top bar position</summary>
+    </key>
+    <key name="max-width" type="i">
+      <range min="160" max="720"/>
+      <default>360</default>
+      <summary>Maximum panel width in pixels</summary>
+    </key>
+    <key name="font-scale" type="d">
+      <range min="0.7" max="1.8"/>
+      <default>1.0</default>
+      <summary>Lyrics font scale</summary>
+    </key>
+    <key name="marquee-speed" type="i">
+      <range min="12" max="120"/>
+      <default>36</default>
+      <summary>Long lyric scrolling speed in pixels per second</summary>
+    </key>
+    <key name="track-info-duration" type="i">
+      <range min="1" max="10"/>
+      <default>3</default>
+      <summary>Seconds to show track information after a track change</summary>
+    </key>
+    <key name="lyrics-offset-ms" type="i">
+      <range min="-10000" max="10000"/>
+      <default>0</default>
+      <summary>Global lyrics timing offset in milliseconds</summary>
+    </key>
+    <key name="show-lyrics" type="b">
+      <default>true</default>
+      <summary>Show synchronized lyrics in the top bar</summary>
+    </key>
+  </schema>
+</schemalist>

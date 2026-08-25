@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": ".test-dist"
+  },
+  "include": [
+    "src/types.ts",
+    "src/lyrics/core.ts",
+    "src/player/selection.ts",
+    "src/cache/policy.ts",
+    "tests/**/*.ts"
+  ]
+}
