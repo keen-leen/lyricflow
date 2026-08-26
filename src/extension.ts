@@ -18,7 +18,7 @@ import {findActiveLyricIndex, trackCacheKey} from './lyrics/core.js';
 import {LyricsScriptConverter, mapLyricsCandidate} from './lyrics/script.js';
 import {LyricsService} from './lyrics/service.js';
 import {MprisManager} from './player/mpris.js';
-import {clampPositionUs, displayedPositionUs} from './player/position.js';
+import {clampPositionUs, displayedPositionUs, lyricSeekPositionUs} from './player/position.js';
 import {LyricIndicator} from './ui/indicator.js';
 
 export default class LyricFlowExtension extends Extension {
@@ -53,6 +53,7 @@ export default class LyricFlowExtension extends Extension {
             next: () => this.player && this.players?.next(this.player),
             previewSeek: fraction => this.previewSeek(fraction),
             seek: fraction => this.seek(fraction),
+            seekToLyric: timeMs => this.seekToLyric(timeMs),
             refreshLyrics: () => void this.searchCandidates(),
             chooseCandidate: candidate => this.chooseCandidate(candidate),
             changeOffset: deltaMs => this.changeOffset(deltaMs),
@@ -211,6 +212,23 @@ export default class LyricFlowExtension extends Extension {
             fraction * this.player.track.lengthUs,
             this.player.track.lengthUs,
         );
+        this.updateUi();
+    }
+
+    private seekToLyric(timeMs: number): void {
+        const player = this.player;
+        if (!player || !this.players
+            || !player.capabilities.canControl || !player.capabilities.canSeek)
+            return;
+        const targetUs = lyricSeekPositionUs(
+            timeMs,
+            this.settings?.get_int('lyrics-offset-ms') ?? 0,
+            player.track.lengthUs,
+        );
+        this.previewPositionUs = null;
+        this.players.seekTo(player, targetUs);
+        if (player.status !== 'Playing' && player.capabilities.canPlay)
+            this.players.play(player);
         this.updateUi();
     }
 

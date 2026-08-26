@@ -230,6 +230,11 @@ export class MprisManager {
         this.call(state, 'PlayPause');
     }
 
+    play(state: PlayerState): void {
+        if (state.capabilities.canPlay)
+            this.call(state, 'Play');
+    }
+
     next(state: PlayerState): void {
         this.call(state, 'Next');
     }

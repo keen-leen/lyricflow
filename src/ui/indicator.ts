@@ -20,6 +20,7 @@ export interface IndicatorActions {
     next(): void;
     previewSeek(fraction: number): void;
     seek(fraction: number): void;
+    seekToLyric(timeMs: number): void;
     refreshLyrics(): void;
     chooseCandidate(candidate: LyricsCandidate): void;
     changeOffset(deltaMs: number): void;
@@ -67,7 +68,8 @@ export class LyricIndicator {
     private readonly scrollView: St.ScrollView;
     private readonly offsetLabel: St.Label;
     private readonly searchButton: St.Button;
-    private lyricLabels: St.Label[] = [];
+    private lyricLabels: St.Widget[] = [];
+    private lyricSeekButtons: St.Button[] = [];
     private topSpacer: St.Widget | null = null;
     private bottomSpacer: St.Widget | null = null;
     private activeIndex = -1;
@@ -76,6 +78,7 @@ export class LyricIndicator {
     private centerPending = false;
     private suppressSeek = false;
     private draggingProgress = false;
+    private lyricsSeekable = false;
     private disposed = false;
     private appearance: IndicatorAppearance = {maxWidth: 360, fontScale: 1, marqueeSpeed: 36};
 
@@ -379,6 +382,9 @@ export class LyricIndicator {
             icon_size: 20,
         }));
         this.progress.reactive = player.capabilities.canSeek && player.track.lengthUs > 0;
+        this.lyricsSeekable = player.capabilities.canControl && player.capabilities.canSeek;
+        for (const button of this.lyricSeekButtons)
+            this.setLyricButtonEnabled(button, this.lyricsSeekable);
     }
 
     private setArtwork(uri: string): void {
@@ -445,23 +451,39 @@ export class LyricIndicator {
         this.statusLabel.visible = Boolean(message);
 
         const lines = result.status === 'synced'
-            ? result.timedLines.map(line => line.text)
-            : result.plainLines;
+            ? result.timedLines.map(line => ({text: line.text, timeMs: line.timeMs}))
+            : result.plainLines.map(text => ({text, timeMs: null}));
         if (result.status === 'synced') {
             this.topSpacer = new St.Widget({height: 0, x_expand: true});
             this.lyricsBox.add_child(this.topSpacer);
         }
-        for (const text of lines) {
-            const label = new St.Label({text, x_expand: true, style_class: 'lyricflow-line'});
+        for (const line of lines) {
+            const label = new St.Label({text: line.text, x_expand: true});
             label.clutter_text.set_line_wrap(true);
             label.clutter_text.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
             label.clutter_text.set_ellipsize(Pango.EllipsizeMode.NONE);
-            label.connect('notify::allocation', () => {
-                if (this.lyricLabels[this.activeIndex] === label)
+            const row: St.Widget = line.timeMs === null
+                ? label
+                : new St.Button({
+                    child: label,
+                    x_expand: true,
+                    accessible_name: `${formatPlaybackTime(line.timeMs * 1_000)} · ${line.text}`,
+                    style_class: 'lyricflow-line',
+                });
+            if (line.timeMs === null) {
+                row.add_style_class_name('lyricflow-line');
+            } else {
+                const button = row as St.Button;
+                this.setLyricButtonEnabled(button, this.lyricsSeekable);
+                button.connect('clicked', () => this.actions.seekToLyric(line.timeMs as number));
+                this.lyricSeekButtons.push(button);
+            }
+            row.connect('notify::allocation', () => {
+                if (this.lyricLabels[this.activeIndex] === row)
                     this.requestActiveLyricCenter();
             });
-            this.lyricsBox.add_child(label);
-            this.lyricLabels.push(label);
+            this.lyricsBox.add_child(row);
+            this.lyricLabels.push(row);
         }
         if (result.status === 'synced') {
             this.bottomSpacer = new St.Widget({height: 0, x_expand: true});
@@ -490,8 +512,15 @@ export class LyricIndicator {
         this.topSpacer = null;
         this.bottomSpacer = null;
         this.lyricLabels = [];
+        this.lyricSeekButtons = [];
         this.activeIndex = -1;
         this.lyricsBox.destroy_all_children();
+    }
+
+    private setLyricButtonEnabled(button: St.Button, enabled: boolean): void {
+        button.reactive = enabled;
+        button.can_focus = enabled;
+        button.track_hover = enabled;
     }
 
     private cancelCentering(removeTransition = true): void {
@@ -557,7 +586,7 @@ export class LyricIndicator {
         });
     }
 
-    private lineGeometryInLyricsBox(line: St.Label): {y: number; height: number} | null {
+    private lineGeometryInLyricsBox(line: St.Widget): {y: number; height: number} | null {
         const lineAllocation = line.get_allocation_box();
         const ancestors: Clutter.ActorBox[] = [];
         let parent = line.get_parent();

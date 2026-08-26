@@ -105,6 +105,41 @@ async function checkButtonStates(indicator) {
     assert(candidate?.get_track_hover(), 'lyrics candidate button must track pointer hover');
 }
 
+async function checkLyricLineSeeking(indicator) {
+    const originalSeekToLyric = indicator.actions.seekToLyric;
+    let requestedTimeMs = null;
+    indicator.actions.seekToLyric = timeMs => {
+        requestedTimeMs = timeMs;
+    };
+    indicator.lyricsSeekable = true;
+    indicator.setLyrics({
+        status: 'synced',
+        candidate: null,
+        timedLines: [{timeMs: 12_340, text: 'Clickable lyric'}],
+        plainLines: [],
+    });
+    const timedRow = indicator.lyricLabels[0];
+    assert(timedRow instanceof St.Button, 'synchronized lyric must use a button');
+    assert(timedRow.reactive && timedRow.get_track_hover(), 'seekable lyric button must be interactive');
+    timedRow.emit('clicked', 1);
+    assert(requestedTimeMs === 12_340, `lyric click requested ${requestedTimeMs}`);
+
+    indicator.setLyricButtonEnabled(timedRow, false);
+    assert(!timedRow.reactive && !timedRow.get_track_hover(),
+        'lyrics must be non-interactive when the player cannot seek');
+
+    indicator.setLyrics({
+        status: 'plain',
+        candidate: null,
+        timedLines: [],
+        plainLines: ['Plain lyric'],
+    });
+    assert(!(indicator.lyricLabels[0] instanceof St.Button),
+        'unsynchronized lyric must remain read-only');
+    indicator.lyricsSeekable = false;
+    indicator.actions.seekToLyric = originalSeekToLyric;
+}
+
 async function focusAndMeasure(indicator, index) {
     indicator.setActiveLyric(index);
     await Scripting.sleep(350);
@@ -125,6 +160,7 @@ async function checkScrolling() {
     console.log('LyricFlow shell scroll test running');
     const indicator = await waitForIndicator();
     await checkButtonStates(indicator);
+    await checkLyricLineSeeking(indicator);
 
     const timedLines = Array.from({length: 24}, (_, index) => ({
         timeMs: index * 2_000,
@@ -132,6 +168,7 @@ async function checkScrolling() {
     }));
     indicator.setVisible(true);
     indicator.setPanelText('LyricFlow integration test');
+    indicator.lyricsSeekable = true;
     indicator.setLyrics({
         status: 'synced',
         candidate: null,
@@ -141,6 +178,8 @@ async function checkScrolling() {
     indicator.setActiveLyric(1);
     indicator.menu.open();
     await Scripting.sleep(500);
+    indicator.lyricLabels[1].emit('clicked', 1);
+    assert(indicator.menu.isOpen, 'lyric click unexpectedly closed the popup');
 
     const early = assertCentered(indicator, 1);
     const middle = await focusAndMeasure(indicator, 11);
