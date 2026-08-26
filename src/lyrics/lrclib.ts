@@ -3,7 +3,14 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
 import type {LyricsCandidate, LyricsProvider, LyricsResult, TrackMetadata} from '../types.js';
-import {decodeLyricsCandidate, rankCandidates, resultFromCandidate} from './core.js';
+import {
+    broadSearchQuery,
+    decodeLyricsCandidate,
+    isUsableLyricsCandidate,
+    mergeSearchCandidates,
+    needsBroadSearch,
+    resultFromCandidate,
+} from './core.js';
 
 const BASE_URL = 'https://lrclib.net';
 const USER_AGENT = 'LyricFlow/0.1.0 (https://github.com/keen/lyricflow)';
@@ -57,7 +64,7 @@ export class LrclibProvider implements LyricsProvider {
         try {
             const value = await this.request(`${BASE_URL}/api/get?${query}`, cancellable);
             const candidate = decodeLyricsCandidate(value);
-            if (candidate)
+            if (candidate && isUsableLyricsCandidate(candidate))
                 return resultFromCandidate(candidate);
         } catch (error) {
             if (!(error instanceof HttpError) || error.status !== 404)
@@ -72,12 +79,35 @@ export class LrclibProvider implements LyricsProvider {
     }
 
     async search(track: TrackMetadata, cancellable?: unknown): Promise<LyricsCandidate[]> {
-        const query = params({track_name: track.title, artist_name: track.artist});
-        const value = await this.request(`${BASE_URL}/api/search?${query}`, cancellable);
-        const candidates = Array.isArray(value)
-            ? value.map(decodeLyricsCandidate).filter((candidate): candidate is LyricsCandidate => candidate !== null)
+        const structuredQuery = params({track_name: track.title, artist_name: track.artist});
+        const structuredValue = await this.request(`${BASE_URL}/api/search?${structuredQuery}`, cancellable);
+        const structuredCandidates = Array.isArray(structuredValue)
+            ? structuredValue.map(decodeLyricsCandidate).filter((candidate): candidate is LyricsCandidate => candidate !== null)
             : [];
-        return rankCandidates(track, candidates).slice(0, 8);
+        if (!needsBroadSearch(track, structuredCandidates))
+            return mergeSearchCandidates(track, structuredCandidates);
+
+        const keywordQuery = broadSearchQuery(track);
+        if (!keywordQuery)
+            return mergeSearchCandidates(track, structuredCandidates);
+
+        try {
+            const broadValue = await this.request(
+                `${BASE_URL}/api/search?${params({q: keywordQuery})}`,
+                cancellable,
+            );
+            const broadCandidates = Array.isArray(broadValue)
+                ? broadValue.map(decodeLyricsCandidate).filter((candidate): candidate is LyricsCandidate => candidate !== null)
+                : [];
+            return mergeSearchCandidates(track, structuredCandidates, broadCandidates);
+        } catch (error) {
+            if (cancellable instanceof Gio.Cancellable && cancellable.is_cancelled())
+                throw error;
+            const candidates = mergeSearchCandidates(track, structuredCandidates);
+            if (candidates.length > 0)
+                return candidates;
+            throw error;
+        }
     }
 
     abort(): void {

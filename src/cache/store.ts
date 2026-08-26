@@ -2,7 +2,7 @@ import GLib from 'gi://GLib';
 
 import type {CacheEntry, CachedLyrics, LyricsResult, TrackMetadata} from '../types.js';
 import {trackCacheKey} from '../lyrics/core.js';
-import {isCacheFresh} from './policy.js';
+import {isCacheFresh, SEARCH_REVISION} from './policy.js';
 
 function decode(contents: Uint8Array): string {
     return new TextDecoder().decode(contents);
@@ -37,6 +37,7 @@ export class LyricsCache {
     write(track: TrackMetadata, result: LyricsResult): void {
         const entry: CacheEntry = {
             version: 1,
+            searchRevision: SEARCH_REVISION,
             savedAtMs: Date.now(),
             trackKey: trackCacheKey(track),
             result: {...result, stale: false},

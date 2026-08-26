@@ -3,6 +3,12 @@ import type {LyricsCandidate, LyricsResult, TimedLyricLine, TrackMetadata} from 
 const TIMESTAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
 const FEATURE_SUFFIX = /\s*[\[(](?:feat\.?|ft\.?|with|live|remaster(?:ed)?)[^\])]*[\])]/giu;
 const NON_WORD = /[^\p{L}\p{N}]+/gu;
+const SEARCH_BRACKET_SUFFIX = /\s*[\[(]\s*(?:(?:feat\.?|ft\.?|with)\b|(?:\d{4}\s+)?remaster(?:ed)?\b|official\s+(?:(?:music\s+)?video|audio)\b|lyrics?\s+video\b)[^\])]*[\])]\s*$/iu;
+const SEARCH_TEXT_SUFFIX = /\s*(?:[-\u2013\u2014]\s*)?(?:(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?|official\s+(?:(?:music\s+)?video|audio)|lyrics?\s+video)\s*$/iu;
+const SEARCH_FEATURE_SUFFIX = /\s+(?:feat\.?|ft\.?|with)\s+.+$/iu;
+
+const SEARCH_CONFIDENCE_THRESHOLD = 0.70;
+const MAX_SEARCH_CANDIDATES = 8;
 
 export function normalizeTrackText(value: string): string {
     return value
@@ -12,6 +18,30 @@ export function normalizeTrackText(value: string): string {
         .replace(NON_WORD, ' ')
         .trim()
         .replace(/\s+/g, ' ');
+}
+
+function cleanSearchText(value: string): string {
+    let cleaned = value.normalize('NFKC').trim();
+    // Some players expose video-site presentation text as track metadata. Strip only
+    // trailing decorations for the broad fallback so the exact lookup stays lossless.
+    for (let pass = 0; pass < 4; pass++) {
+        const next = cleaned
+            .replace(SEARCH_BRACKET_SUFFIX, '')
+            .replace(SEARCH_TEXT_SUFFIX, '')
+            .replace(SEARCH_FEATURE_SUFFIX, '')
+            .trim();
+        if (next === cleaned)
+            break;
+        cleaned = next;
+    }
+    return normalizeTrackText(cleaned);
+}
+
+export function broadSearchQuery(track: TrackMetadata): string {
+    const title = cleanSearchText(track.title);
+    const primaryArtist = track.artists.find(artist => artist.trim()) ?? track.artist;
+    const artist = cleanSearchText(primaryArtist);
+    return [title, artist].filter(Boolean).join(' ');
 }
 
 function fractionToMs(value: string | undefined): number {
@@ -76,6 +106,20 @@ export function resultFromCandidate(candidate: LyricsCandidate): LyricsResult {
     if (plainLines.length > 0)
         return {status: 'plain', candidate, timedLines: [], plainLines};
     return {status: 'not-found', candidate, timedLines: [], plainLines: []};
+}
+
+export function lyricsCandidateQuality(candidate: LyricsCandidate): number {
+    if (candidate.instrumental)
+        return 1;
+    if (parseLrc(candidate.syncedLyrics ?? '').length > 0)
+        return 3;
+    if (plainLyricsToLines(candidate.plainLyrics).length > 0)
+        return 2;
+    return 0;
+}
+
+export function isUsableLyricsCandidate(candidate: LyricsCandidate): boolean {
+    return lyricsCandidateQuality(candidate) > 0;
 }
 
 export function decodeLyricsCandidate(value: unknown): LyricsCandidate | null {
@@ -152,7 +196,31 @@ export function scoreCandidate(track: TrackMetadata, candidate: LyricsCandidate)
 }
 
 export function rankCandidates(track: TrackMetadata, candidates: LyricsCandidate[]): LyricsCandidate[] {
-    return [...candidates].sort((a, b) => scoreCandidate(track, b) - scoreCandidate(track, a));
+    return [...candidates].sort((a, b) => {
+        // Availability is a small tie-breaker: metadata remains decisive unless two
+        // records are close enough that synchronized lyrics are the more useful choice.
+        const aScore = scoreCandidate(track, a) + lyricsCandidateQuality(a) * 0.01;
+        const bScore = scoreCandidate(track, b) + lyricsCandidateQuality(b) * 0.01;
+        return bScore - aScore;
+    });
+}
+
+export function needsBroadSearch(track: TrackMetadata, candidates: LyricsCandidate[]): boolean {
+    return !candidates.some(candidate =>
+        isUsableLyricsCandidate(candidate)
+        && scoreCandidate(track, candidate) >= SEARCH_CONFIDENCE_THRESHOLD);
+}
+
+export function mergeSearchCandidates(
+    track: TrackMetadata,
+    ...groups: LyricsCandidate[][]
+): LyricsCandidate[] {
+    const byId = new Map<number, LyricsCandidate>();
+    for (const candidate of groups.flat()) {
+        if (!byId.has(candidate.id) && isUsableLyricsCandidate(candidate))
+            byId.set(candidate.id, candidate);
+    }
+    return rankCandidates(track, [...byId.values()]).slice(0, MAX_SEARCH_CANDIDATES);
 }
 
 function fnv1a(value: string): string {

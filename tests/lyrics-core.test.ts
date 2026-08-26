@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {decodeLyricsCandidate, findActiveLyricIndex, normalizeTrackText, parseLrc, rankCandidates, resultFromCandidate, scoreCandidate, trackCacheKey} from '../src/lyrics/core.js';
+import {broadSearchQuery, decodeLyricsCandidate, findActiveLyricIndex, isUsableLyricsCandidate, mergeSearchCandidates, needsBroadSearch, normalizeTrackText, parseLrc, rankCandidates, resultFromCandidate, scoreCandidate, trackCacheKey} from '../src/lyrics/core.js';
 import type {LyricsCandidate, TrackMetadata} from '../src/types.js';
 
 const track: TrackMetadata = {
@@ -69,6 +69,33 @@ test('candidate scoring prefers matching metadata and duration', () => {
     const wrong = candidate({id: 2, trackName: 'Another Song', artistName: 'Someone Else', duration: 120});
     assert.ok(scoreCandidate(track, exact) > scoreCandidate(track, wrong));
     assert.deepEqual(rankCandidates(track, [wrong, exact]).map(item => item.id), [1, 2]);
+});
+
+test('broad search query removes presentation suffixes and uses the first artist', () => {
+    assert.equal(broadSearchQuery({...track, title: 'Song (Remastered 2011)'}), 'song fleetwood mac');
+    assert.equal(broadSearchQuery({...track, title: 'Song [feat. Guest]'}), 'song fleetwood mac');
+    assert.equal(broadSearchQuery({...track, title: 'Song (Official Video)'}), 'song fleetwood mac');
+    assert.equal(broadSearchQuery({
+        ...track,
+        title: 'Collaboration',
+        artists: ['First Artist', 'Guest Artist'],
+        artist: 'First Artist, Guest Artist',
+    }), 'collaboration first artist');
+});
+
+test('low-confidence or unusable candidates trigger broad search', () => {
+    assert.equal(needsBroadSearch(track, [candidate()]), false);
+    assert.equal(needsBroadSearch(track, [candidate({syncedLyrics: null, plainLyrics: null})]), true);
+    assert.equal(needsBroadSearch(track, [candidate({trackName: 'Another Song', artistName: 'Someone Else'})]), true);
+});
+
+test('merged search results deduplicate, skip empty lyrics, and prefer synced close matches', () => {
+    const empty = candidate({id: 2, syncedLyrics: null, plainLyrics: null});
+    const plain = candidate({id: 3, syncedLyrics: null, plainLyrics: 'Plain lyrics'});
+    const synced = candidate({id: 4, syncedLyrics: '[00:01] Synced'});
+    const merged = mergeSearchCandidates(track, [empty, plain], [plain, synced]);
+    assert.deepEqual(merged.map(item => item.id), [4, 3]);
+    assert.equal(isUsableLyricsCandidate(empty), false);
 });
 
 test('fixed LRCLIB responses decode synchronized, plain, and instrumental results', () => {

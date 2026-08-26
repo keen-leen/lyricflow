@@ -73,6 +73,7 @@ export interface LyricsProvider {
 
 export interface CacheEntry {
     version: 1;
+    searchRevision?: number;
     savedAtMs: number;
     trackKey: string;
     result: LyricsResult;
