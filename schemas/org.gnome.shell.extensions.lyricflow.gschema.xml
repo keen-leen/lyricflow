@@ -48,5 +48,18 @@
       </choices>
       <summary>Chinese script used to display lyrics</summary>
     </key>
+    <key name="liquid-glass-enabled" type="b">
+      <default>false</default>
+      <summary>Use a liquid glass appearance for the lyrics popup</summary>
+    </key>
+    <key name="liquid-glass-strength" type="s">
+      <default>'balanced'</default>
+      <choices>
+        <choice value="subtle"/>
+        <choice value="balanced"/>
+        <choice value="strong"/>
+      </choices>
+      <summary>Liquid glass blur and transparency strength</summary>
+    </key>
   </schema>
 </schemalist>

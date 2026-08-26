@@ -20,6 +20,7 @@ import {LyricsService} from './lyrics/service.js';
 import {MprisManager} from './player/mpris.js';
 import {clampPositionUs, displayedPositionUs, lyricSeekPositionUs} from './player/position.js';
 import {LyricIndicator} from './ui/indicator.js';
+import {parseLiquidGlassStrength} from './ui/glass.js';
 
 export default class LyricFlowExtension extends Extension {
     private settings: Gio.Settings | null = null;
@@ -64,7 +65,13 @@ export default class LyricFlowExtension extends Extension {
         this.applyAppearance();
         this.indicator.setOffset(settings.get_int('lyrics-offset-ms'));
 
-        for (const key of ['max-width', 'font-scale', 'marquee-speed']) {
+        for (const key of [
+            'max-width',
+            'font-scale',
+            'marquee-speed',
+            'liquid-glass-enabled',
+            'liquid-glass-strength',
+        ]) {
             this.settingsSignalIds.push(settings.connect(`changed::${key}`, () => this.applyAppearance()));
         }
         this.settingsSignalIds.push(settings.connect('changed::panel-position', () => {
@@ -98,6 +105,8 @@ export default class LyricFlowExtension extends Extension {
             maxWidth: this.settings.get_int('max-width'),
             fontScale: this.settings.get_double('font-scale'),
             marqueeSpeed: this.settings.get_int('marquee-speed'),
+            liquidGlassEnabled: this.settings.get_boolean('liquid-glass-enabled'),
+            liquidGlassStrength: parseLiquidGlassStrength(this.settings.get_string('liquid-glass-strength')),
         });
     }
 

@@ -3,6 +3,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -13,6 +14,14 @@ import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 import type {LyricsCandidate, LyricsCandidateDisplay, LyricsResult, PlayerState} from '../types.js';
 import {formatPlaybackTime} from '../player/position.js';
 import {centeredScrollValue, contentLineGeometry, edgeSpacerHeight} from './scroll-position.js';
+import {liquidGlassPreset, type LiquidGlassStrength} from './glass.js';
+
+const GLASS_EFFECT_NAME = 'lyricflow-background-blur';
+const GLASS_STRENGTH_CLASSES = [
+    'lyricflow-glass-subtle',
+    'lyricflow-glass-balanced',
+    'lyricflow-glass-strong',
+];
 
 export interface IndicatorActions {
     previous(): void;
@@ -32,6 +41,8 @@ export interface IndicatorAppearance {
     maxWidth: number;
     fontScale: number;
     marqueeSpeed: number;
+    liquidGlassEnabled: boolean;
+    liquidGlassStrength: LiquidGlassStrength;
 }
 
 function iconButton(iconName: string, label: string): St.Button {
@@ -80,7 +91,15 @@ export class LyricIndicator {
     private draggingProgress = false;
     private lyricsSeekable = false;
     private disposed = false;
-    private appearance: IndicatorAppearance = {maxWidth: 360, fontScale: 1, marqueeSpeed: 36};
+    private glassEffect: Shell.BlurEffect | null = null;
+    private glassBackground: {red: number; green: number; blue: number} | null = null;
+    private appearance: IndicatorAppearance = {
+        maxWidth: 360,
+        fontScale: 1,
+        marqueeSpeed: 36,
+        liquidGlassEnabled: false,
+        liquidGlassStrength: 'balanced',
+    };
 
     constructor(
         private readonly actions: IndicatorActions,
@@ -90,6 +109,8 @@ export class LyricIndicator {
         this.menu = this.button.menu as PopupMenu.PopupMenu;
         this.button.connect('destroy', () => {
             this.disposed = true;
+            this.glassEffect = null;
+            this.glassBackground = null;
             this.cancelCentering(false);
             if (this.marqueeSource) {
                 GLib.source_remove(this.marqueeSource);
@@ -289,7 +310,54 @@ export class LyricIndicator {
         this.appearance = appearance;
         this.panelBin.set_style(`width: ${appearance.maxWidth}px; font-size: ${Math.round(appearance.fontScale * 100)}%;`);
         this.root.set_style(`font-size: ${Math.round(appearance.fontScale * 100)}%;`);
+        this.applyLiquidGlass();
         this.requestActiveLyricCenter();
+    }
+
+    private applyLiquidGlass(): void {
+        const effectTarget = this.menu.actor.bin;
+        this.menu.actor.remove_style_class_name('lyricflow-glass-menu');
+        for (const styleClass of GLASS_STRENGTH_CLASSES)
+            this.menu.actor.remove_style_class_name(styleClass);
+
+        if (!this.appearance.liquidGlassEnabled) {
+            effectTarget.remove_effect_by_name(GLASS_EFFECT_NAME);
+            this.glassEffect = null;
+            this.glassBackground = null;
+            this.menu.box.set_style(null);
+            return;
+        }
+
+        const preset = liquidGlassPreset(this.appearance.liquidGlassStrength);
+        if (!this.glassBackground) {
+            const color = this.menu.box.get_theme_node().get_background_color();
+            this.glassBackground = {
+                red: Math.round(color.get_red() * 255),
+                green: Math.round(color.get_green() * 255),
+                blue: Math.round(color.get_blue() * 255),
+            };
+        }
+        const {red, green, blue} = this.glassBackground;
+        this.menu.box.set_style(`background-color: rgba(${red}, ${green}, ${blue}, ${preset.opacity});`);
+        this.menu.actor.add_style_class_name('lyricflow-glass-menu');
+        this.menu.actor.add_style_class_name(`lyricflow-glass-${this.appearance.liquidGlassStrength}`);
+
+        try {
+            if (!this.glassEffect) {
+                this.glassEffect = new Shell.BlurEffect({
+                    mode: Shell.BlurMode.BACKGROUND,
+                    radius: preset.radius,
+                    brightness: 1,
+                });
+                effectTarget.add_effect_with_name(GLASS_EFFECT_NAME, this.glassEffect);
+            } else {
+                this.glassEffect.radius = preset.radius;
+            }
+        } catch (error) {
+            effectTarget.remove_effect_by_name(GLASS_EFFECT_NAME);
+            this.glassEffect = null;
+            console.warn(`LyricFlow: background blur unavailable, using translucent fallback: ${String(error)}`);
+        }
     }
 
     setVisible(visible: boolean): void {

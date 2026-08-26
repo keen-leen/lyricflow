@@ -63,6 +63,43 @@ export default class LyricFlowPreferences extends ExtensionPreferences {
         display.add(this.spinRow(settings, 'marquee-speed', this.gettext('Marquee speed'), this.gettext('pixels per second'), 12, 120, 1));
         display.add(this.spinRow(settings, 'track-info-duration', this.gettext('Track information duration'), this.gettext('seconds'), 1, 10, 1));
 
+        const popupAppearance = new Adw.PreferencesGroup({
+            title: this.gettext('Popup appearance'),
+            description: this.gettext('Customize the expanded player and lyrics popup.'),
+        });
+        page.add(popupAppearance);
+
+        const liquidGlass = new Adw.SwitchRow({
+            title: this.gettext('Liquid glass'),
+            subtitle: this.gettext('Blur the content behind the popup and use translucent surfaces.'),
+        });
+        settings.bind('liquid-glass-enabled', liquidGlass, 'active', Gio.SettingsBindFlags.DEFAULT);
+        popupAppearance.add(liquidGlass);
+
+        const glassStrengths = Gtk.StringList.new([
+            this.gettext('Subtle'),
+            this.gettext('Balanced'),
+            this.gettext('Strong'),
+        ]);
+        const glassStrength = new Adw.ComboRow({
+            title: this.gettext('Glass strength'),
+            subtitle: this.gettext('Stronger levels increase blur and transparency.'),
+            model: glassStrengths,
+        });
+        const glassStrengthValues = ['subtle', 'balanced', 'strong'];
+        glassStrength.selected = Math.max(
+            0,
+            glassStrengthValues.indexOf(settings.get_string('liquid-glass-strength')),
+        );
+        glassStrength.connect('notify::selected', () => {
+            settings.set_string(
+                'liquid-glass-strength',
+                glassStrengthValues[glassStrength.selected] ?? 'balanced',
+            );
+        });
+        settings.bind('liquid-glass-enabled', glassStrength, 'sensitive', Gio.SettingsBindFlags.GET);
+        popupAppearance.add(glassStrength);
+
         const timing = new Adw.PreferencesGroup({
             title: this.gettext('Lyrics timing'),
             description: this.gettext('A positive offset shows lyrics earlier; a negative offset shows them later.'),

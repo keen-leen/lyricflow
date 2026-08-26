@@ -113,6 +113,33 @@ msgstr "歌曲信息显示时长"
 msgid "seconds"
 msgstr "秒"
 
+msgid "Popup appearance"
+msgstr "弹窗外观"
+
+msgid "Customize the expanded player and lyrics popup."
+msgstr "自定义展开后的播放器和歌词弹窗。"
+
+msgid "Liquid glass"
+msgstr "液态玻璃"
+
+msgid "Blur the content behind the popup and use translucent surfaces."
+msgstr "模糊弹窗后方的内容，并使用半透明表面。"
+
+msgid "Subtle"
+msgstr "轻度"
+
+msgid "Balanced"
+msgstr "标准"
+
+msgid "Strong"
+msgstr "强烈"
+
+msgid "Glass strength"
+msgstr "玻璃强度"
+
+msgid "Stronger levels increase blur and transparency."
+msgstr "强度越高，模糊和透明效果越明显。"
+
 msgid "Lyrics timing"
 msgstr "歌词时间"
 

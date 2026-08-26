@@ -22,6 +22,48 @@
   spacing: 14px;
 }
 
+.lyricflow-glass-menu .popup-menu-content {
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 10px 32px rgba(0, 0, 0, 0.28);
+  transition-duration: 160ms;
+}
+
+.lyricflow-glass-menu .lyricflow-card {
+  background-gradient-direction: vertical;
+  background-gradient-start: rgba(255, 255, 255, 0.08);
+  background-gradient-end: rgba(127, 127, 127, 0.03);
+}
+
+.lyricflow-glass-menu .lyricflow-header,
+.lyricflow-glass-menu .lyricflow-lyric-actions,
+.lyricflow-glass-menu .lyricflow-scroll {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.lyricflow-glass-menu .lyricflow-header {
+  background-color: rgba(127, 127, 127, 0.14);
+}
+
+.lyricflow-glass-menu .lyricflow-lyric-actions,
+.lyricflow-glass-menu .lyricflow-scroll {
+  background-color: rgba(127, 127, 127, 0.10);
+}
+
+.lyricflow-glass-menu .lyricflow-icon-button,
+.lyricflow-glass-menu .lyricflow-candidate {
+  background-color: rgba(127, 127, 127, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.lyricflow-glass-strong .lyricflow-header,
+.lyricflow-glass-strong .lyricflow-lyric-actions,
+.lyricflow-glass-strong .lyricflow-scroll {
+  background-color: rgba(127, 127, 127, 0.14);
+}
+
 .lyricflow-header {
   spacing: 16px;
   padding: 13px;

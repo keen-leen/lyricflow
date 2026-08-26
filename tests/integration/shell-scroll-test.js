@@ -140,6 +140,33 @@ async function checkLyricLineSeeking(indicator) {
     indicator.actions.seekToLyric = originalSeekToLyric;
 }
 
+function checkLiquidGlass(indicator) {
+    const original = indicator.appearance;
+    const effectTarget = indicator.menu.actor.bin;
+
+    indicator.setAppearance({...original, liquidGlassEnabled: true, liquidGlassStrength: 'subtle'});
+    const subtleEffect = effectTarget.get_effect('lyricflow-background-blur');
+    assert(subtleEffect?.radius === 12, 'subtle liquid glass did not apply a 12px blur');
+    assert(indicator.menu.actor.has_style_class_name('lyricflow-glass-menu'),
+        'liquid glass popup style class is missing');
+    assert(indicator.menu.actor.has_style_class_name('lyricflow-glass-subtle'),
+        'subtle liquid glass style class is missing');
+
+    indicator.setAppearance({...original, liquidGlassEnabled: true, liquidGlassStrength: 'strong'});
+    const strongEffect = effectTarget.get_effect('lyricflow-background-blur');
+    assert(strongEffect === subtleEffect, 'changing glass strength duplicated the blur effect');
+    assert(strongEffect?.radius === 36, 'strong liquid glass did not apply a 36px blur');
+    assert(indicator.menu.actor.has_style_class_name('lyricflow-glass-strong'),
+        'strong liquid glass style class is missing');
+
+    indicator.setAppearance({...original, liquidGlassEnabled: false});
+    assert(!effectTarget.get_effect('lyricflow-background-blur'),
+        'disabling liquid glass left the blur effect attached');
+    assert(!indicator.menu.actor.has_style_class_name('lyricflow-glass-menu'),
+        'disabling liquid glass left the popup style class attached');
+    indicator.setAppearance(original);
+}
+
 async function focusAndMeasure(indicator, index) {
     indicator.setActiveLyric(index);
     await Scripting.sleep(350);
@@ -161,6 +188,7 @@ async function checkScrolling() {
     const indicator = await waitForIndicator();
     await checkButtonStates(indicator);
     await checkLyricLineSeeking(indicator);
+    checkLiquidGlass(indicator);
 
     const timedLines = Array.from({length: 24}, (_, index) => ({
         timeMs: index * 2_000,
