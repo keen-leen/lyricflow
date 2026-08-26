@@ -17,19 +17,22 @@
 }
 
 .lyricflow-card {
-  width: 420px;
+  width: 440px;
   padding: 18px;
-  spacing: 12px;
-}
-
-.lyricflow-header {
   spacing: 14px;
 }
 
+.lyricflow-header {
+  spacing: 16px;
+  padding: 13px;
+  border-radius: 16px;
+  background-color: rgba(127, 127, 127, 0.10);
+}
+
 .lyricflow-artwork {
-  width: 72px;
-  height: 72px;
-  border-radius: 12px;
+  width: 84px;
+  height: 84px;
+  border-radius: 14px;
   background-color: rgba(127, 127, 127, 0.16);
 }
 
@@ -38,12 +41,12 @@
 }
 
 .lyricflow-metadata {
-  spacing: 3px;
-  padding-top: 5px;
+  spacing: 2px;
+  padding-top: 3px;
 }
 
 .lyricflow-title {
-  font-size: 1.15em;
+  font-size: 1.2em;
   font-weight: 700;
 }
 
@@ -51,25 +54,91 @@
   font-weight: 500;
 }
 
-.lyricflow-player,
+.lyricflow-album {
+  color: rgba(127, 127, 127, 0.95);
+  font-size: 0.92em;
+}
+
+.lyricflow-player {
+  margin-top: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background-color: rgba(127, 127, 127, 0.14);
+  color: rgba(127, 127, 127, 0.98);
+  font-size: 0.8em;
+}
+
 .lyricflow-status,
 .lyricflow-offset {
   color: rgba(127, 127, 127, 0.95);
   font-size: 0.88em;
 }
 
+.lyricflow-progress-area {
+  spacing: 0;
+  padding: 0 3px;
+}
+
 .lyricflow-progress {
   height: 18px;
-  -barlevel-height: 4px;
+  -barlevel-height: 5px;
+}
+
+.lyricflow-time-row {
+  padding: 0 2px;
+}
+
+.lyricflow-time {
+  color: rgba(127, 127, 127, 0.95);
+  font-size: 0.82em;
 }
 
 .lyricflow-controls {
-  spacing: 14px;
+  spacing: 20px;
+  padding: 1px 0 3px;
 }
 
 .lyricflow-icon-button {
   border-radius: 999px;
-  padding: 8px;
+  padding: 9px;
+  background-color: rgba(127, 127, 127, 0.10);
+}
+
+.lyricflow-icon-button,
+.lyricflow-text-button,
+.lyricflow-preferences-button,
+.lyricflow-candidate {
+  transition-duration: 120ms;
+}
+
+.lyricflow-icon-button:hover,
+.lyricflow-text-button:hover,
+.lyricflow-preferences-button:hover,
+.lyricflow-candidate:hover {
+  background-color: rgba(127, 127, 127, 0.20);
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.28);
+}
+
+.lyricflow-icon-button:active,
+.lyricflow-text-button:active,
+.lyricflow-preferences-button:active,
+.lyricflow-candidate:active {
+  background-color: rgba(127, 127, 127, 0.28);
+  box-shadow: inset 0 2px 3px 0 rgba(0, 0, 0, 0.22);
+}
+
+.lyricflow-icon-button:focus,
+.lyricflow-text-button:focus,
+.lyricflow-preferences-button:focus,
+.lyricflow-candidate:focus {
+  box-shadow: inset 0 0 0 2px st-transparentize(-st-accent-color, 0.25);
+}
+
+.lyricflow-icon-button:insensitive,
+.lyricflow-icon-button:insensitive:hover,
+.lyricflow-icon-button:insensitive:active {
+  background-color: rgba(127, 127, 127, 0.07);
+  box-shadow: none;
 }
 
 .lyricflow-play-button {
@@ -78,8 +147,25 @@
   padding: 10px;
 }
 
+.lyricflow-play-button:hover {
+  background-color: st-lighten(-st-accent-color, 8%);
+  box-shadow: 0 0 7px 1px st-transparentize(-st-accent-color, 0.58);
+}
+
+.lyricflow-play-button:active {
+  background-color: st-darken(-st-accent-color, 8%);
+  box-shadow: inset 0 2px 3px 0 rgba(0, 0, 0, 0.26);
+}
+
+.lyricflow-play-button:focus {
+  box-shadow: 0 0 0 2px st-transparentize(-st-accent-color, 0.45);
+}
+
 .lyricflow-lyric-actions {
   spacing: 7px;
+  padding: 9px;
+  border-radius: 12px;
+  background-color: rgba(127, 127, 127, 0.08);
 }
 
 .lyricflow-text-button {
@@ -94,11 +180,13 @@
 
 .lyricflow-scroll {
   height: 330px;
+  border-radius: 16px;
+  background-color: rgba(127, 127, 127, 0.06);
 }
 
 .lyricflow-lyrics {
   spacing: 5px;
-  padding: 0 10px;
+  padding: 4px 12px;
 }
 
 .lyricflow-line {
@@ -112,6 +200,8 @@
   color: inherit;
   font-size: 1.18em;
   font-weight: 700;
+  border-radius: 10px;
+  background-color: rgba(127, 127, 127, 0.10);
 }
 
 .lyricflow-candidate {
@@ -123,4 +213,6 @@
 
 .lyricflow-preferences-button {
   margin-top: 2px;
+  padding: 7px;
+  border-radius: 10px;
 }

@@ -1,5 +1,6 @@
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
+import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Scripting from 'resource:///org/gnome/shell/ui/scripting.js';
@@ -57,6 +58,53 @@ function assertCentered(indicator, index) {
     return adjustment.value;
 }
 
+function descendants(actor) {
+    return actor.get_children().flatMap(child => [child, ...descendants(child)]);
+}
+
+async function checkButtonStates(indicator) {
+    const permanentButtons = descendants(indicator.root).filter(actor => actor instanceof St.Button);
+    assert(permanentButtons.length >= 8, `expected popup controls, found ${permanentButtons.length} buttons`);
+    assert(permanentButtons.every(button => button.get_track_hover()),
+        'every permanent popup button must track pointer hover');
+
+    const searchButton = indicator.searchButton;
+    searchButton.set_hover(true);
+    await Scripting.sleep(150);
+    assert(searchButton.has_style_pseudo_class('hover'), 'search button did not enter hover state');
+    searchButton.set_hover(false);
+    assert(!searchButton.has_style_pseudo_class('hover'), 'search button kept hover state after pointer left');
+
+    searchButton.add_style_pseudo_class('active');
+    assert(searchButton.has_style_pseudo_class('active'), 'search button did not enter active state');
+    searchButton.remove_style_pseudo_class('active');
+    assert(!searchButton.has_style_pseudo_class('active'), 'search button kept active state after release');
+
+    indicator.previousButton.reactive = false;
+    assert(indicator.previousButton.has_style_pseudo_class('insensitive'),
+        'disabled transport button did not enter insensitive state');
+    indicator.previousButton.reactive = true;
+
+    indicator.showCandidates([{
+        candidate: {
+            id: 1,
+            trackName: 'Integration track',
+            artistName: 'Integration artist',
+            albumName: 'Integration album',
+            duration: 120,
+            instrumental: false,
+            plainLyrics: 'Integration lyric',
+            syncedLyrics: null,
+        },
+        trackName: 'Integration track',
+        artistName: 'Integration artist',
+        albumName: 'Integration album',
+    }]);
+    const candidate = descendants(indicator.lyricsBox)
+        .find(actor => actor instanceof St.Button && actor.has_style_class_name('lyricflow-candidate'));
+    assert(candidate?.get_track_hover(), 'lyrics candidate button must track pointer hover');
+}
+
 async function focusAndMeasure(indicator, index) {
     indicator.setActiveLyric(index);
     await Scripting.sleep(350);
@@ -76,6 +124,7 @@ async function waitForIndicator() {
 async function checkScrolling() {
     console.log('LyricFlow shell scroll test running');
     const indicator = await waitForIndicator();
+    await checkButtonStates(indicator);
 
     const timedLines = Array.from({length: 24}, (_, index) => ({
         timeMs: index * 2_000,

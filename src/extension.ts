@@ -126,6 +126,7 @@ export default class LyricFlowExtension extends Extension {
         this.indicator?.setPlayer(player, sameTrack ? {
             title: this.displayTitle,
             artist: this.displayArtist,
+            album: player.track.album,
         } : undefined);
         if (nextKey !== this.trackKey) {
             this.trackKey = nextKey;
@@ -168,7 +169,7 @@ export default class LyricFlowExtension extends Extension {
         const actualPositionUs = this.players?.getPositionUs(player) ?? player.positionUs;
         const positionUs = displayedPositionUs(actualPositionUs, this.previewPositionUs);
         const fraction = player.track.lengthUs > 0 ? positionUs / player.track.lengthUs : 0;
-        indicator.setProgress(fraction);
+        indicator.setProgress(fraction, positionUs, player.track.lengthUs);
         indicator.setPaused(player.status !== 'Playing');
 
         const title = player.track.title || this.gettext('Unknown title');
@@ -280,7 +281,7 @@ export default class LyricFlowExtension extends Extension {
                 return;
             console.warn(`LyricFlow: Chinese script conversion failed, using original text: ${String(error)}`);
             this.applyDisplay(
-                {title: player.track.title, artist: player.track.artist},
+                {title: player.track.title, artist: player.track.artist, album: player.track.album},
                 rawLyrics,
                 rawCandidates?.map(candidate => mapLyricsCandidate(candidate, text => text)) ?? null,
             );
@@ -288,7 +289,7 @@ export default class LyricFlowExtension extends Extension {
     }
 
     private applyDisplay(
-        track: {title: string; artist: string},
+        track: {title: string; artist: string; album: string},
         lyrics: LyricsResult | null,
         candidates: LyricsCandidateDisplay[] | null,
     ): void {

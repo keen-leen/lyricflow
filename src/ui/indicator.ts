@@ -11,6 +11,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 
 import type {LyricsCandidate, LyricsCandidateDisplay, LyricsResult, PlayerState} from '../types.js';
+import {formatPlaybackTime} from '../player/position.js';
 import {centeredScrollValue, contentLineGeometry, edgeSpacerHeight} from './scroll-position.js';
 
 export interface IndicatorActions {
@@ -53,8 +54,11 @@ export class LyricIndicator {
     private readonly artwork: St.Bin;
     private readonly titleLabel: St.Label;
     private readonly artistLabel: St.Label;
+    private readonly albumLabel: St.Label;
     private readonly playerLabel: St.Label;
     private readonly progress: Slider;
+    private readonly elapsedLabel: St.Label;
+    private readonly durationLabel: St.Label;
     private readonly previousButton: St.Button;
     private readonly playButton: St.Button;
     private readonly nextButton: St.Button;
@@ -128,14 +132,26 @@ export class LyricIndicator {
         this.titleLabel.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
         this.artistLabel = new St.Label({style_class: 'lyricflow-artist'});
         this.artistLabel.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
-        this.playerLabel = new St.Label({style_class: 'lyricflow-player'});
+        this.albumLabel = new St.Label({style_class: 'lyricflow-album'});
+        this.albumLabel.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
+        this.playerLabel = new St.Label({
+            style_class: 'lyricflow-player',
+            x_align: Clutter.ActorAlign.START,
+        });
         metadata.add_child(this.titleLabel);
         metadata.add_child(this.artistLabel);
+        metadata.add_child(this.albumLabel);
         metadata.add_child(this.playerLabel);
         header.add_child(metadata);
         this.root.add_child(header);
 
+        const progressArea = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            style_class: 'lyricflow-progress-area',
+        });
         this.progress = new Slider(0);
+        this.progress.x_expand = true;
         this.progress.add_style_class_name('lyricflow-progress');
         this.progress.connect('drag-begin', () => {
             if (!this.progress.reactive)
@@ -154,7 +170,19 @@ export class LyricIndicator {
             this.draggingProgress = false;
             this.actions.seek(fraction);
         });
-        this.root.add_child(this.progress);
+        progressArea.add_child(this.progress);
+        const timeRow = new St.BoxLayout({x_expand: true, style_class: 'lyricflow-time-row'});
+        this.elapsedLabel = new St.Label({text: '0:00', style_class: 'lyricflow-time'});
+        this.durationLabel = new St.Label({
+            text: '--:--',
+            style_class: 'lyricflow-time',
+            x_align: Clutter.ActorAlign.END,
+            x_expand: true,
+        });
+        timeRow.add_child(this.elapsedLabel);
+        timeRow.add_child(this.durationLabel);
+        progressArea.add_child(timeRow);
+        this.root.add_child(progressArea);
 
         const controls = new St.BoxLayout({style_class: 'lyricflow-controls', x_align: Clutter.ActorAlign.CENTER});
         this.previousButton = iconButton('media-skip-backward-symbolic', this.gettext('Previous'));
@@ -174,6 +202,8 @@ export class LyricIndicator {
             label: this.gettext('Search again'),
             style_class: 'button lyricflow-text-button',
             can_focus: true,
+            reactive: true,
+            track_hover: true,
         });
         this.searchButton.connect('clicked', () => this.actions.refreshLyrics());
         lyricActions.add_child(this.searchButton);
@@ -208,13 +238,21 @@ export class LyricIndicator {
             label: this.gettext('Preferences'),
             style_class: 'button lyricflow-preferences-button',
             can_focus: true,
+            reactive: true,
+            track_hover: true,
         });
         settingsButton.connect('clicked', () => this.actions.openPreferences());
         this.root.add_child(settingsButton);
     }
 
     private offsetButton(label: string, delta: number): St.Button {
-        const button = new St.Button({label, style_class: 'button lyricflow-text-button', can_focus: true});
+        const button = new St.Button({
+            label,
+            style_class: 'button lyricflow-text-button',
+            can_focus: true,
+            reactive: true,
+            track_hover: true,
+        });
         button.connect('clicked', () => this.actions.changeOffset(delta));
         return button;
     }
@@ -322,11 +360,13 @@ export class LyricIndicator {
         }
     }
 
-    setPlayer(player: PlayerState, display?: {title: string; artist: string}): void {
+    setPlayer(player: PlayerState, display?: {title: string; artist: string; album: string}): void {
         if (this.disposed)
             return;
         this.titleLabel.text = display?.title || player.track.title || this.gettext('Unknown title');
         this.artistLabel.text = display?.artist || player.track.artist || this.gettext('Unknown artist');
+        this.albumLabel.text = display?.album || player.track.album;
+        this.albumLabel.visible = Boolean(this.albumLabel.text);
         this.playerLabel.text = player.identity;
         this.setArtwork(player.track.artUrl);
         this.previousButton.reactive = player.capabilities.canGoPrevious;
@@ -363,12 +403,16 @@ export class LyricIndicator {
         this.artwork.set_child(child);
     }
 
-    setProgress(fraction: number): void {
-        if (this.disposed || this.draggingProgress)
+    setProgress(fraction: number, positionUs: number, lengthUs: number): void {
+        if (this.disposed)
             return;
-        this.suppressSeek = true;
-        this.progress.value = Math.max(0, Math.min(1, fraction));
-        this.suppressSeek = false;
+        if (!this.draggingProgress) {
+            this.suppressSeek = true;
+            this.progress.value = Math.max(0, Math.min(1, fraction));
+            this.suppressSeek = false;
+        }
+        this.elapsedLabel.text = formatPlaybackTime(positionUs);
+        this.durationLabel.text = lengthUs > 0 ? formatPlaybackTime(lengthUs) : '--:--';
     }
 
     setOffset(offsetMs: number): void {
@@ -538,6 +582,8 @@ export class LyricIndicator {
             const button = new St.Button({
                 style_class: 'lyricflow-candidate',
                 can_focus: true,
+                reactive: true,
+                track_hover: true,
                 x_expand: true,
                 child: new St.Label({
                     text: `${candidate.trackName} — ${candidate.artistName}${candidate.albumName ? `\n${candidate.albumName}` : ''}`,

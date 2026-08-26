@@ -67,9 +67,13 @@ export class LyricsScriptConverter {
     async convertTrack(
         track: TrackMetadata,
         mode: LyricsScriptMode,
-    ): Promise<{title: string; artist: string}> {
+    ): Promise<{title: string; artist: string; album: string}> {
         const convert = await this.getConverter(mode);
-        return {title: convert(track.title), artist: convert(track.artist)};
+        return {
+            title: convert(track.title),
+            artist: convert(track.artist),
+            album: convert(track.album),
+        };
     }
 
     async convertResult(result: LyricsResult, mode: LyricsScriptMode): Promise<LyricsResult> {
