@@ -62,6 +62,21 @@ msgstr "设置同步歌词在 GNOME 顶栏中的显示方式。"
 msgid "Show synchronized lyrics"
 msgstr "显示同步歌词"
 
+msgid "Simplified Chinese"
+msgstr "简体中文"
+
+msgid "Standard Traditional Chinese"
+msgstr "标准繁体"
+
+msgid "Keep source text"
+msgstr "保留原文"
+
+msgid "Lyrics text"
+msgstr "歌词文字"
+
+msgid "Conversion only changes display text; cached LRCLIB lyrics remain unchanged."
+msgstr "转换只影响显示，缓存中的 LRCLIB 歌词原文不会改变。"
+
 msgid "Fall back to the song title when timed lyrics are unavailable."
 msgstr "没有时间轴歌词时回退显示歌曲信息。"
 

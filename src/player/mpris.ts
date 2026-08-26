@@ -3,6 +3,7 @@ import GLib from 'gi://GLib';
 
 import type {PlaybackStatus, PlayerCapabilities, PlayerState, TrackMetadata} from '../types.js';
 import {selectActivePlayer} from './selection.js';
+import {clampPositionUs} from './position.js';
 
 const MPRIS_PREFIX = 'org.mpris.MediaPlayer2.';
 const OBJECT_PATH = '/org/mpris/MediaPlayer2';
@@ -14,6 +15,7 @@ interface ManagedPlayer {
     playerProxy: Gio.DBusProxy;
     rootProxy: Gio.DBusProxy;
     signalIds: number[];
+    seekGeneration: number;
 }
 
 function unpack(value: unknown): unknown {
@@ -154,8 +156,11 @@ export class MprisManager {
                 activeSequence: ++this.sequence,
                 capabilities: readCapabilities(playerProxy),
             };
-            const managed: ManagedPlayer = {state, playerProxy, rootProxy, signalIds: []};
-            managed.signalIds.push(playerProxy.connect('g-properties-changed', () => this.refreshPlayer(managed)));
+            const managed: ManagedPlayer = {state, playerProxy, rootProxy, signalIds: [], seekGeneration: 0};
+            managed.signalIds.push(playerProxy.connect(
+                'g-properties-changed',
+                (_proxy, changedProperties) => this.refreshPlayer(managed, changedProperties),
+            ));
             managed.signalIds.push(playerProxy.connect('g-signal', (_proxy, _sender, signalName, parameters) => {
                 if (signalName !== 'Seeked')
                     return;
@@ -181,21 +186,29 @@ export class MprisManager {
         this.emitChanged();
     }
 
-    private refreshPlayer(managed: ManagedPlayer): void {
+    private refreshPlayer(managed: ManagedPlayer, changedProperties: GLib.Variant): void {
         const previousStatus = managed.state.status;
         const previousTrack = managed.state.track.trackId;
+        const estimatedPositionUs = this.getPositionUs(managed.state);
+        const changed = changedProperties.deepUnpack() as Record<string, unknown>;
         const status = playbackStatus(managed.playerProxy);
         const track = readMetadata(managed.playerProxy);
+        const trackChanged = previousTrack !== track.trackId;
+        const changedPosition = Object.hasOwn(changed, 'Position')
+            ? Number(unpack(changed.Position))
+            : null;
         managed.state = {
             ...managed.state,
             status,
             track,
-            positionUs: numberProperty(managed.playerProxy, 'Position', managed.state.positionUs),
+            positionUs: Number.isFinite(changedPosition)
+                ? changedPosition as number
+                : trackChanged ? 0 : estimatedPositionUs,
             rate: numberProperty(managed.playerProxy, 'Rate', 1),
             sampledAtUs: GLib.get_monotonic_time(),
             capabilities: readCapabilities(managed.playerProxy),
         };
-        if ((status === 'Playing' && previousStatus !== 'Playing') || previousTrack !== track.trackId)
+        if ((status === 'Playing' && previousStatus !== 'Playing') || trackChanged)
             managed.state.activeSequence = ++this.sequence;
         this.emitChanged();
     }
@@ -228,10 +241,30 @@ export class MprisManager {
     seekTo(state: PlayerState, positionUs: number): void {
         if (!state.capabilities.canSeek || !state.track.trackId)
             return;
-        this.call(state, 'SetPosition', new GLib.Variant('(ox)', [state.track.trackId, Math.round(positionUs)]));
+        const managed = this.players.get(state.busName);
+        if (!managed || !state.capabilities.canControl
+            || managed.state.track.trackId !== state.track.trackId)
+            return;
+        const trackId = state.track.trackId;
+        const targetUs = Math.round(clampPositionUs(positionUs, managed.state.track.lengthUs));
+        const seekGeneration = ++managed.seekGeneration;
+        managed.state.positionUs = targetUs;
+        managed.state.sampledAtUs = GLib.get_monotonic_time();
+        this.emitChanged();
+        this.call(
+            managed.state,
+            'SetPosition',
+            new GLib.Variant('(ox)', [trackId, targetUs]),
+            () => this.resyncPosition(managed, trackId, seekGeneration),
+        );
     }
 
-    private call(state: PlayerState, method: string, parameters: GLib.Variant | null = null): void {
+    private call(
+        state: PlayerState,
+        method: string,
+        parameters: GLib.Variant | null = null,
+        onError?: () => void,
+    ): void {
         const managed = this.players.get(state.busName);
         if (!managed || !state.capabilities.canControl)
             return;
@@ -241,8 +274,37 @@ export class MprisManager {
                     managed.playerProxy.call_finish(result);
             } catch (error) {
                 console.warn(`LyricFlow: MPRIS ${method} failed: ${String(error)}`);
+                onError?.();
             }
         });
+    }
+
+    private resyncPosition(managed: ManagedPlayer, trackId: string, seekGeneration: number): void {
+        managed.playerProxy.call(
+            'org.freedesktop.DBus.Properties.Get',
+            new GLib.Variant('(ss)', [PLAYER_INTERFACE, 'Position']),
+            Gio.DBusCallFlags.NONE,
+            -1,
+            null,
+            (_proxy, result) => {
+                try {
+                    if (!result)
+                        return;
+                    const reply = managed.playerProxy.call_finish(result);
+                    const [rawPosition] = reply.deepUnpack() as [unknown];
+                    if (this.destroyed
+                        || this.players.get(managed.state.busName) !== managed
+                        || managed.seekGeneration !== seekGeneration
+                        || managed.state.track.trackId !== trackId)
+                        return;
+                    managed.state.positionUs = Number(unpack(rawPosition));
+                    managed.state.sampledAtUs = GLib.get_monotonic_time();
+                    this.emitChanged();
+                } catch (error) {
+                    console.warn(`LyricFlow: failed to resync MPRIS position: ${String(error)}`);
+                }
+            },
+        );
     }
 
     destroy(): void {

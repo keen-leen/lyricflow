@@ -14,6 +14,7 @@ LyricFlow 是面向 GNOME Shell 50 的顶栏同步歌词扩展。它直接监听
 - 长歌词平滑滚动，暂停时冻结，没有播放器时自动隐藏。
 - 弹窗提供封面、上一首、播放/暂停、下一首、进度拖动和完整歌词。
 - LRCLIB 精确查询和候选重选，支持全局 ±10 秒歌词偏移。
+- 默认把繁体歌词离线转换为简体，也可切换为标准繁体或保留原文。
 - 成功歌词缓存 30 天，未命中缓存 24 小时；离线时使用已有歌词缓存。
 - GNOME 原生设置页和简体中文翻译。
 
@@ -60,6 +61,13 @@ journalctl -f -o cat /usr/bin/gnome-shell
 gjs -m tests/integration/mock-player.js
 ```
 
+GNOME Shell 50 还可以无窗口运行歌词滚动回归测试。该测试会安装刚构建的 ZIP 到
+临时环境，依次检查前部、中部和后部歌词居中以及弹窗重新打开后的定位：
+
+```bash
+make shell-test
+```
+
 ## 隐私
 
 请求歌词时会把歌名、歌手、专辑和时长发送给 `https://lrclib.net`。扩展不使用
@@ -75,3 +83,7 @@ service or runtime npm dependency.
 ## License
 
 GPL-3.0-or-later.
+
+The packaged Chinese conversion dictionaries use `opencc-js` 1.4.2 under its
+MIT and Apache-2.0 licenses. The corresponding license and third-party notices
+are included in the extension ZIP.

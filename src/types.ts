@@ -1,4 +1,5 @@
 export type PlaybackStatus = 'Playing' | 'Paused' | 'Stopped';
+export type LyricsScriptMode = 'simplified' | 'traditional' | 'original';
 
 export interface TrackMetadata {
     trackId: string;
@@ -45,6 +46,13 @@ export interface LyricsCandidate {
     instrumental: boolean;
     plainLyrics: string | null;
     syncedLyrics: string | null;
+}
+
+export interface LyricsCandidateDisplay {
+    candidate: LyricsCandidate;
+    trackName: string;
+    artistName: string;
+    albumName: string;
 }
 
 export type LyricsStatus = 'synced' | 'plain' | 'instrumental' | 'not-found' | 'error';

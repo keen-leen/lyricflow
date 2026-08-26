@@ -7,7 +7,7 @@ const BUS_NAME = 'org.mpris.MediaPlayer2.LyricFlowTest';
 const OBJECT_PATH = '/org/mpris/MediaPlayer2';
 const TRACK_ID = '/org/mpris/MediaPlayer2/track/1';
 
-const XML = `
+const ROOT_XML = `
 <node>
   <interface name="org.mpris.MediaPlayer2">
     <property name="CanQuit" type="b" access="read"/>
@@ -18,6 +18,10 @@ const XML = `
     <property name="SupportedUriSchemes" type="as" access="read"/>
     <property name="SupportedMimeTypes" type="as" access="read"/>
   </interface>
+</node>`;
+
+const PLAYER_XML = `
+<node>
   <interface name="org.mpris.MediaPlayer2.Player">
     <method name="Next"/>
     <method name="Previous"/>
@@ -47,9 +51,12 @@ const XML = `
 </node>`;
 
 let status = 'Playing';
-let sampledPosition = 0;
+// Start in the middle of a cached Chinese track so popup lyric positioning and
+// Simplified Chinese display can be exercised immediately during integration tests.
+let sampledPosition = 60_000_000;
 let sampledAt = GLib.get_monotonic_time();
 let exported = null;
+let rootExported = null;
 
 function position() {
     return status === 'Playing'
@@ -81,10 +88,10 @@ const implementation = {
     get Metadata() {
         return {
             'mpris:trackid': new GLib.Variant('o', TRACK_ID),
-            'mpris:length': new GLib.Variant('x', 271_000_000),
-            'xesam:title': new GLib.Variant('s', 'The Chain'),
-            'xesam:artist': new GLib.Variant('as', ['Fleetwood Mac']),
-            'xesam:album': new GLib.Variant('s', 'Rumours'),
+            'mpris:length': new GLib.Variant('x', 240_000_000),
+            'xesam:title': new GLib.Variant('s', '勇气'),
+            'xesam:artist': new GLib.Variant('as', ['梁静茹']),
+            'xesam:album': new GLib.Variant('s', '勇气'),
         };
     },
     get Position() {
@@ -129,8 +136,9 @@ const implementation = {
     SetPosition(trackId, value) {
         if (trackId !== TRACK_ID)
             return;
-        sampledPosition = Math.max(0, Number(value));
+        sampledPosition = Math.max(0, Math.min(240_000_000, Number(value)));
         sampledAt = GLib.get_monotonic_time();
+        console.log(`SetPosition ${Math.round(sampledPosition)}`);
         exported?.emit_signal('Seeked', new GLib.Variant('(x)', [Math.round(sampledPosition)]));
     },
 };
@@ -141,7 +149,9 @@ Gio.bus_own_name(
     BUS_NAME,
     Gio.BusNameOwnerFlags.NONE,
     connection => {
-        exported = Gio.DBusExportedObject.wrapJSObject(XML, implementation);
+        rootExported = Gio.DBusExportedObject.wrapJSObject(ROOT_XML, implementation);
+        rootExported.export(connection, OBJECT_PATH);
+        exported = Gio.DBusExportedObject.wrapJSObject(PLAYER_XML, implementation);
         exported.export(connection, OBJECT_PATH);
         console.log(`${BUS_NAME} ready`);
     },

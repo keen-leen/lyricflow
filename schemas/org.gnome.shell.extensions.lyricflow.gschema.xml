@@ -39,5 +39,14 @@
       <default>true</default>
       <summary>Show synchronized lyrics in the top bar</summary>
     </key>
+    <key name="lyrics-script" type="s">
+      <default>'simplified'</default>
+      <choices>
+        <choice value="simplified"/>
+        <choice value="traditional"/>
+        <choice value="original"/>
+      </choices>
+      <summary>Chinese script used to display lyrics</summary>
+    </key>
   </schema>
 </schemalist>

@@ -1,6 +1,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
@@ -9,12 +10,14 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import {Slider} from 'resource:///org/gnome/shell/ui/slider.js';
 
-import type {LyricsCandidate, LyricsResult, PlayerState} from '../types.js';
+import type {LyricsCandidate, LyricsCandidateDisplay, LyricsResult, PlayerState} from '../types.js';
+import {centeredScrollValue, contentLineGeometry, edgeSpacerHeight} from './scroll-position.js';
 
 export interface IndicatorActions {
     previous(): void;
     playPause(): void;
     next(): void;
+    previewSeek(fraction: number): void;
     seek(fraction: number): void;
     refreshLyrics(): void;
     chooseCandidate(candidate: LyricsCandidate): void;
@@ -43,6 +46,7 @@ function iconButton(iconName: string, label: string): St.Button {
 export class LyricIndicator {
     readonly button: PanelMenu.Button;
 
+    private readonly menu: PopupMenu.PopupMenu;
     private readonly panelBin: St.Bin;
     private readonly panelLabel: St.Label;
     private readonly root: St.BoxLayout;
@@ -60,9 +64,14 @@ export class LyricIndicator {
     private readonly offsetLabel: St.Label;
     private readonly searchButton: St.Button;
     private lyricLabels: St.Label[] = [];
+    private topSpacer: St.Widget | null = null;
+    private bottomSpacer: St.Widget | null = null;
     private activeIndex = -1;
     private marqueeSource = 0;
+    private centerLaterId = 0;
+    private centerPending = false;
     private suppressSeek = false;
+    private draggingProgress = false;
     private disposed = false;
     private appearance: IndicatorAppearance = {maxWidth: 360, fontScale: 1, marqueeSpeed: 36};
 
@@ -71,8 +80,10 @@ export class LyricIndicator {
         private readonly gettext: (message: string) => string,
     ) {
         this.button = new PanelMenu.Button(0, 'LyricFlow', false);
+        this.menu = this.button.menu as PopupMenu.PopupMenu;
         this.button.connect('destroy', () => {
             this.disposed = true;
+            this.cancelCentering(false);
             if (this.marqueeSource) {
                 GLib.source_remove(this.marqueeSource);
                 this.marqueeSource = 0;
@@ -100,7 +111,13 @@ export class LyricIndicator {
         menuItem.add_style_class_name('lyricflow-menu-item');
         this.root = new St.BoxLayout({vertical: true, style_class: 'lyricflow-card'});
         menuItem.add_child(this.root);
-        (this.button.menu as PopupMenu.PopupMenu).addMenuItem(menuItem);
+        this.menu.addMenuItem(menuItem);
+        this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (isOpen)
+                this.requestActiveLyricCenter();
+            else
+                this.cancelCentering();
+        });
 
         const header = new St.BoxLayout({vertical: false, style_class: 'lyricflow-header'});
         this.artwork = new St.Bin({style_class: 'lyricflow-artwork'});
@@ -120,9 +137,22 @@ export class LyricIndicator {
 
         this.progress = new Slider(0);
         this.progress.add_style_class_name('lyricflow-progress');
+        this.progress.connect('drag-begin', () => {
+            if (!this.progress.reactive)
+                return;
+            this.draggingProgress = true;
+            this.actions.previewSeek(this.progress.value);
+        });
+        this.progress.connect('notify::value', () => {
+            if (this.draggingProgress && !this.suppressSeek)
+                this.actions.previewSeek(this.progress.value);
+        });
         this.progress.connect('drag-end', () => {
-            if (!this.suppressSeek)
-                this.actions.seek(this.progress.value);
+            if (!this.draggingProgress)
+                return;
+            const fraction = this.progress.value;
+            this.draggingProgress = false;
+            this.actions.seek(fraction);
         });
         this.root.add_child(this.progress);
 
@@ -164,9 +194,15 @@ export class LyricIndicator {
             x_expand: true,
             y_expand: true,
         });
+        this.scrollView.connect('notify::allocation', () => this.requestActiveLyricCenter());
         this.lyricsBox = new St.BoxLayout({vertical: true, x_expand: true, style_class: 'lyricflow-lyrics'});
+        this.lyricsBox.connect('notify::allocation', () => this.requestActiveLyricCenter());
         this.scrollView.set_child(this.lyricsBox);
         this.root.add_child(this.scrollView);
+        const adjustment = this.scrollView.vadjustment;
+        adjustment.connect('changed', () => this.requestActiveLyricCenter());
+        adjustment.connect('notify::upper', () => this.requestActiveLyricCenter());
+        adjustment.connect('notify::page-size', () => this.requestActiveLyricCenter());
 
         const settingsButton = new St.Button({
             label: this.gettext('Preferences'),
@@ -212,6 +248,7 @@ export class LyricIndicator {
         this.appearance = appearance;
         this.panelBin.set_style(`width: ${appearance.maxWidth}px; font-size: ${Math.round(appearance.fontScale * 100)}%;`);
         this.root.set_style(`font-size: ${Math.round(appearance.fontScale * 100)}%;`);
+        this.requestActiveLyricCenter();
     }
 
     setVisible(visible: boolean): void {
@@ -285,11 +322,11 @@ export class LyricIndicator {
         }
     }
 
-    setPlayer(player: PlayerState): void {
+    setPlayer(player: PlayerState, display?: {title: string; artist: string}): void {
         if (this.disposed)
             return;
-        this.titleLabel.text = player.track.title || this.gettext('Unknown title');
-        this.artistLabel.text = player.track.artist || this.gettext('Unknown artist');
+        this.titleLabel.text = display?.title || player.track.title || this.gettext('Unknown title');
+        this.artistLabel.text = display?.artist || player.track.artist || this.gettext('Unknown artist');
         this.playerLabel.text = player.identity;
         this.setArtwork(player.track.artUrl);
         this.previousButton.reactive = player.capabilities.canGoPrevious;
@@ -327,7 +364,7 @@ export class LyricIndicator {
     }
 
     setProgress(fraction: number): void {
-        if (this.disposed)
+        if (this.disposed || this.draggingProgress)
             return;
         this.suppressSeek = true;
         this.progress.value = Math.max(0, Math.min(1, fraction));
@@ -345,15 +382,13 @@ export class LyricIndicator {
             return;
         this.statusLabel.text = this.gettext('Searching for lyrics…');
         this.statusLabel.visible = true;
-        this.lyricsBox.destroy_all_children();
-        this.lyricLabels = [];
+        this.clearLyricsBox();
     }
 
     setLyrics(result: LyricsResult): void {
         if (this.disposed)
             return;
-        this.lyricsBox.destroy_all_children();
-        this.lyricLabels = [];
+        this.clearLyricsBox();
         this.activeIndex = -1;
         const statusMessages: Partial<Record<LyricsResult['status'], string>> = {
             instrumental: this.gettext('Instrumental track'),
@@ -368,14 +403,27 @@ export class LyricIndicator {
         const lines = result.status === 'synced'
             ? result.timedLines.map(line => line.text)
             : result.plainLines;
+        if (result.status === 'synced') {
+            this.topSpacer = new St.Widget({height: 0, x_expand: true});
+            this.lyricsBox.add_child(this.topSpacer);
+        }
         for (const text of lines) {
             const label = new St.Label({text, x_expand: true, style_class: 'lyricflow-line'});
             label.clutter_text.set_line_wrap(true);
             label.clutter_text.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
             label.clutter_text.set_ellipsize(Pango.EllipsizeMode.NONE);
+            label.connect('notify::allocation', () => {
+                if (this.lyricLabels[this.activeIndex] === label)
+                    this.requestActiveLyricCenter();
+            });
             this.lyricsBox.add_child(label);
             this.lyricLabels.push(label);
         }
+        if (result.status === 'synced') {
+            this.bottomSpacer = new St.Widget({height: 0, x_expand: true});
+            this.lyricsBox.add_child(this.bottomSpacer);
+        }
+        this.requestActiveLyricCenter();
     }
 
     setActiveLyric(index: number): void {
@@ -390,10 +438,74 @@ export class LyricIndicator {
         this.activeIndex = index;
         if (!current)
             return;
-        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+        this.requestActiveLyricCenter();
+    }
+
+    private clearLyricsBox(): void {
+        this.cancelCentering();
+        this.topSpacer = null;
+        this.bottomSpacer = null;
+        this.lyricLabels = [];
+        this.activeIndex = -1;
+        this.lyricsBox.destroy_all_children();
+    }
+
+    private cancelCentering(removeTransition = true): void {
+        this.centerPending = false;
+        if (removeTransition)
+            this.scrollView.vadjustment.remove_transition('value');
+        if (this.centerLaterId) {
+            global.compositor?.get_laters().remove(this.centerLaterId);
+            this.centerLaterId = 0;
+        }
+    }
+
+    private requestActiveLyricCenter(): void {
+        if (this.disposed || !this.menu.isOpen || this.activeIndex < 0)
+            return;
+        this.centerPending = true;
+        this.scrollView.vadjustment.remove_transition('value');
+        if (this.centerLaterId)
+            return;
+        this.centerLaterId = global.compositor.get_laters().add(Meta.LaterType.BEFORE_REDRAW, () => {
+            this.centerLaterId = 0;
+            if (this.disposed || !this.menu.isOpen || !this.centerPending)
+                return GLib.SOURCE_REMOVE;
+            const current = this.lyricLabels[this.activeIndex];
+            const first = this.lyricLabels[0];
+            const last = this.lyricLabels[this.lyricLabels.length - 1];
             const adjustment = this.scrollView.vadjustment;
-            const target = current.y + current.height / 2 - adjustment.page_size / 2;
-            adjustment.ease(Math.max(0, Math.min(target, adjustment.upper - adjustment.page_size)), {
+            const pageSize = adjustment.pageSize;
+            const currentGeometry = current ? this.lineGeometryInLyricsBox(current) : null;
+            const firstGeometry = first ? this.lineGeometryInLyricsBox(first) : null;
+            const lastGeometry = last ? this.lineGeometryInLyricsBox(last) : null;
+            if (!currentGeometry || !firstGeometry || !lastGeometry || pageSize <= 0
+                || currentGeometry.height <= 0
+                || firstGeometry.height <= 0 || lastGeometry.height <= 0)
+                return GLib.SOURCE_REMOVE;
+
+            const spacing = this.lyricsBox.get_theme_node().get_length('spacing');
+            const topHeight = edgeSpacerHeight(pageSize, firstGeometry.height, spacing);
+            const bottomHeight = edgeSpacerHeight(pageSize, lastGeometry.height, spacing);
+            const spacersChanged = Boolean(
+                this.topSpacer && Math.abs(this.topSpacer.height - topHeight) > 0.5
+                || this.bottomSpacer && Math.abs(this.bottomSpacer.height - bottomHeight) > 0.5,
+            );
+            this.topSpacer?.set_height(topHeight);
+            this.bottomSpacer?.set_height(bottomHeight);
+            if (spacersChanged) {
+                this.lyricsBox.queue_relayout();
+                return GLib.SOURCE_REMOVE;
+            }
+
+            this.centerPending = false;
+            adjustment.ease(centeredScrollValue(
+                currentGeometry.y,
+                currentGeometry.height,
+                pageSize,
+                adjustment.lower,
+                adjustment.upper,
+            ), {
                 duration: 260,
                 mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             });
@@ -401,11 +513,23 @@ export class LyricIndicator {
         });
     }
 
-    showCandidates(candidates: LyricsCandidate[]): void {
+    private lineGeometryInLyricsBox(line: St.Label): {y: number; height: number} | null {
+        const lineAllocation = line.get_allocation_box();
+        const ancestors: Clutter.ActorBox[] = [];
+        let parent = line.get_parent();
+        while (parent && parent !== this.lyricsBox) {
+            ancestors.push(parent.get_allocation_box());
+            parent = parent.get_parent();
+        }
+        if (parent !== this.lyricsBox)
+            return null;
+        return contentLineGeometry(lineAllocation, ancestors);
+    }
+
+    showCandidates(candidates: LyricsCandidateDisplay[]): void {
         if (this.disposed)
             return;
-        this.lyricsBox.destroy_all_children();
-        this.lyricLabels = [];
+        this.clearLyricsBox();
         this.statusLabel.text = candidates.length
             ? this.gettext('Choose the correct lyrics')
             : this.gettext('No lyrics found');
@@ -420,12 +544,13 @@ export class LyricIndicator {
                     x_align: Clutter.ActorAlign.START,
                 }),
             });
-            button.connect('clicked', () => this.actions.chooseCandidate(candidate));
+            button.connect('clicked', () => this.actions.chooseCandidate(candidate.candidate));
             this.lyricsBox.add_child(button);
         }
     }
 
     destroy(): void {
+        this.cancelCentering();
         this.stopMarquee();
         if (!this.disposed)
             this.button.destroy();

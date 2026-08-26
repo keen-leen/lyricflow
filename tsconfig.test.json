@@ -13,8 +13,12 @@
   "include": [
     "src/types.ts",
     "src/lyrics/core.ts",
+    "src/lyrics/script.ts",
     "src/player/selection.ts",
+    "src/player/position.ts",
     "src/cache/policy.ts",
+    "src/ui/scroll-position.ts",
+    "src/vendor/**/*.d.ts",
     "tests/**/*.ts"
   ]
 }

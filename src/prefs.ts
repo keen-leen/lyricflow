@@ -28,6 +28,23 @@ export default class LyricFlowPreferences extends ExtensionPreferences {
         settings.bind('show-lyrics', showLyrics, 'active', Gio.SettingsBindFlags.DEFAULT);
         display.add(showLyrics);
 
+        const scripts = Gtk.StringList.new([
+            this.gettext('Simplified Chinese'),
+            this.gettext('Standard Traditional Chinese'),
+            this.gettext('Keep source text'),
+        ]);
+        const script = new Adw.ComboRow({
+            title: this.gettext('Lyrics text'),
+            subtitle: this.gettext('Conversion only changes display text; cached LRCLIB lyrics remain unchanged.'),
+            model: scripts,
+        });
+        const scriptValues = ['simplified', 'traditional', 'original'];
+        script.selected = Math.max(0, scriptValues.indexOf(settings.get_string('lyrics-script')));
+        script.connect('notify::selected', () => {
+            settings.set_string('lyrics-script', scriptValues[script.selected] ?? 'simplified');
+        });
+        display.add(script);
+
         const positions = Gtk.StringList.new([
             this.gettext('Left'),
             this.gettext('Center'),
