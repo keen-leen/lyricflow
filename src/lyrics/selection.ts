@@ -1,5 +1,5 @@
-import type {LyricsCandidate, LyricsProviderOutcome, TrackMetadata} from '../types.js';
-import {isTextLyricsCandidate, mergeSearchCandidates} from './core.js';
+import type {LyricsCandidate, LyricsProviderOutcome, LyricsResult, TrackMetadata} from '../types.js';
+import {isTextLyricsCandidate, mergeSearchCandidates, resultFromCandidate} from './core.js';
 
 export interface CombinedLyricsOutcome {
     candidates: LyricsCandidate[];
@@ -31,4 +31,17 @@ export function combineProviderOutcomes(
         successfulRequests,
         errors,
     };
+}
+
+export function resultFromOutcome(outcome: CombinedLyricsOutcome): LyricsResult {
+    const best = outcome.candidates[0];
+    if (best)
+        return resultFromCandidate(best);
+    if (outcome.errors.length > 0 || outcome.successfulRequests === 0) {
+        return {
+            status: 'error', candidate: null, timedLines: [], plainLines: [],
+            message: outcome.errors.join('; ') || 'No lyrics query completed',
+        };
+    }
+    return {status: 'not-found', candidate: null, timedLines: [], plainLines: []};
 }

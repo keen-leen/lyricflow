@@ -61,6 +61,10 @@ journalctl -f -o cat /usr/bin/gnome-shell
 gjs -m tests/integration/mock-player.js
 ```
 
+`make test`（或 `npm test`）统一运行单元测试与集成测试，需要 `gjs` 和
+`dbus-run-session`。集成测试使用临时缓存目录和独立 D-Bus 会话，验证缓存策略
+与异步播放器生命周期。测试代码编译到 `.test-dist/`，不依赖已有的 `dist/` 构建产物。
+
 GNOME Shell 50 还可以无窗口运行歌词滚动回归测试。该测试会安装刚构建的 ZIP 到
 临时环境，依次检查前部、中部和后部歌词居中以及弹窗重新打开后的定位：
 
@@ -72,7 +76,8 @@ make shell-test
 
 请求歌词时会把歌曲元数据发送给 `https://lrclib.net`；没有同步歌词时会把搜索
 元数据发送给 `https://music.163.com`。扩展不发送账号、Cookie、播放记录或歌词
-正文。缓存位于 `$XDG_CACHE_HOME/lyricflow/lyrics`。
+正文。缓存位于 `$XDG_CACHE_HOME/lyricflow/lyrics/`，日常重启保留缓存。
+缓存不提供历史格式兼容或迁移；修改缓存格式时直接清空该目录并重新查询。
 
 ## English
 

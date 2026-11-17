@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {combineProviderOutcomes} from '../src/lyrics/selection.js';
+import {combineProviderOutcomes, resultFromOutcome} from '../src/lyrics/selection.js';
 import type {LyricsCandidate, LyricsProviderOutcome, TrackMetadata} from '../src/types.js';
 
 const track: TrackMetadata = {
@@ -64,4 +64,23 @@ test('matching instrumental responses from both providers are accepted', () => {
         combineProviderOutcomes(track, outcome([primary]), outcome([fallback])).candidates[0]?.instrumental,
         true,
     );
+});
+
+test('incomplete queries are errors even after successful requests', () => {
+    for (const successfulRequests of [0, 1, 4]) {
+        const result = resultFromOutcome({candidates: [], successfulRequests, errors: ['lyrics fetch failed']});
+        assert.equal(result.status, 'error');
+        assert.match(result.message ?? '', /lyrics fetch failed/);
+    }
+    assert.equal(resultFromOutcome({candidates: [], successfulRequests: 0, errors: []}).status, 'error');
+    assert.equal(resultFromOutcome({candidates: [], successfulRequests: 1, errors: []}).status, 'not-found');
+});
+
+test('usable candidates survive partial provider failures', () => {
+    for (const syncedLyrics of [null, '[00:01] Synced']) {
+        const combined = combineProviderOutcomes(track,
+            outcome([candidate('lrclib', {syncedLyrics})]),
+            {candidates: [], successfulRequests: 0, errors: ['network failure']});
+        assert.equal(resultFromOutcome(combined).status, syncedLyrics ? 'synced' : 'plain');
+    }
 });

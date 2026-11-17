@@ -265,21 +265,18 @@ export function mergeSearchCandidates(
     return rankCandidates(track, [...byId.values()]).slice(0, MAX_SEARCH_CANDIDATES);
 }
 
-function fnv1a(value: string): string {
-    let hash = 0x811c9dc5;
-    for (let index = 0; index < value.length; index++) {
-        hash ^= value.charCodeAt(index);
-        hash = Math.imul(hash, 0x01000193);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
+// Search normalization is deliberately broader than cache identity normalization.
+function identityText(value: string): string {
+    return value.normalize('NFC').trim().replace(/\s+/g, ' ');
 }
 
 export function trackCacheKey(track: TrackMetadata): string {
-    const identity = [
-        normalizeTrackText(track.title),
-        normalizeTrackText(track.artist),
-        normalizeTrackText(track.album),
-        Math.round(track.lengthUs / 5_000_000),
-    ].join('|');
-    return `${fnv1a(identity)}-${normalizeTrackText(track.title).slice(0, 32).replace(/ /g, '-') || 'unknown'}`;
+    const durationMs = Number.isFinite(track.lengthUs) && track.lengthUs > 0
+        ? Math.round(track.lengthUs / 1_000) : 0;
+    return JSON.stringify([
+        identityText(track.title),
+        identityText(track.artist),
+        identityText(track.album),
+        durationMs,
+    ]);
 }

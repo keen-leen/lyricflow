@@ -160,8 +160,21 @@ test('malformed LRCLIB candidates are rejected and optional fields are normalize
     });
 });
 
-test('cache key is stable across cosmetic title changes', () => {
-    const first = trackCacheKey(track);
-    const second = trackCacheKey({...track, title: 'The Chain'});
-    assert.equal(first, second);
+test('cache identity preserves editions, punctuation, case and precise duration', () => {
+    const key = trackCacheKey(track);
+    for (const change of [
+        {title: 'The Chain'}, {title: 'The Chain (Live)'},
+        {title: 'the Chain (Remastered)'}, {title: 'The Chain (Remastered)!'},
+        {title: 'The Chain (feat. Guest)'}, {lengthUs: track.lengthUs + 1_000_000},
+        {lengthUs: track.lengthUs + 1_000},
+    ])
+        assert.notEqual(trackCacheKey({...track, ...change}), key);
+    assert.equal(trackCacheKey({...track, trackId: '/other', artUrl: 'file:///cover'}), key);
+});
+
+test('cache identity normalizes whitespace and NFC, and invalid durations', () => {
+    assert.equal(trackCacheKey({...track, title: '  Cafe\u0301  Song  '}),
+        trackCacheKey({...track, title: 'Café Song'}));
+    for (const lengthUs of [-1, Number.NaN, Number.POSITIVE_INFINITY])
+        assert.equal(trackCacheKey({...track, lengthUs}), trackCacheKey({...track, lengthUs: 0}));
 });

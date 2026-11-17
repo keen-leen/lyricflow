@@ -11,11 +11,18 @@ const PLAYER_INTERFACE = 'org.mpris.MediaPlayer2.Player';
 const ROOT_INTERFACE = 'org.mpris.MediaPlayer2';
 
 interface ManagedPlayer {
+    owner: string;
     state: PlayerState;
     playerProxy: Gio.DBusProxy;
     rootProxy: Gio.DBusProxy;
     signalIds: number[];
     seekGeneration: number;
+}
+
+interface PlayerInitialization {
+    cancellable: Gio.Cancellable;
+    sequence: number;
+    owner?: string;
 }
 
 function unpack(value: unknown): unknown {
@@ -80,6 +87,8 @@ function numberProperty(proxy: Gio.DBusProxy, name: string, fallback: number): n
 export class MprisManager {
     private readonly players = new Map<string, ManagedPlayer>();
     private readonly connection = Gio.DBus.session;
+    private readonly pending = new Map<string, PlayerInitialization>();
+    private readonly lifetimeCancellable = new Gio.Cancellable();
     private nameSignalId = 0;
     private sequence = 0;
     private destroyed = false;
@@ -87,21 +96,8 @@ export class MprisManager {
     constructor(private readonly onChanged: (player: PlayerState | null) => void) {}
 
     start(): void {
-        const reply = this.connection.call_sync(
-            'org.freedesktop.DBus',
-            '/org/freedesktop/DBus',
-            'org.freedesktop.DBus',
-            'ListNames',
-            null,
-            new GLib.VariantType('(as)'),
-            Gio.DBusCallFlags.NONE,
-            -1,
-            null,
-        );
-        const [names] = reply.deepUnpack() as [string[]];
-        for (const name of names.filter(candidate => candidate.startsWith(MPRIS_PREFIX)))
-            this.addPlayer(name);
-
+        if (this.destroyed || this.nameSignalId)
+            return;
         this.nameSignalId = this.connection.signal_subscribe(
             'org.freedesktop.DBus',
             'org.freedesktop.DBus',
@@ -116,34 +112,85 @@ export class MprisManager {
                 if (oldOwner)
                     this.removePlayer(name);
                 if (newOwner)
-                    this.addPlayer(name);
+                    this.addPlayer(name, newOwner);
             },
         );
+        void this.enumeratePlayers();
         this.emitChanged();
     }
 
-    private addPlayer(busName: string): void {
+    private busCall(method: string, parameters: GLib.Variant | null, cancellable: Gio.Cancellable): Promise<GLib.Variant> {
+        return new Promise((resolve, reject) => {
+            this.connection.call(
+                'org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus',
+                method, parameters, null, Gio.DBusCallFlags.NONE, -1, cancellable,
+                (_connection, result) => {
+                    try {
+                        resolve(this.connection.call_finish(result));
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+            );
+        });
+    }
+
+    private async enumeratePlayers(): Promise<void> {
+        try {
+            const reply = await this.busCall('ListNames', null, this.lifetimeCancellable);
+            if (this.destroyed)
+                return;
+            const [names] = reply.deepUnpack() as [string[]];
+            for (const name of names.filter(candidate => candidate.startsWith(MPRIS_PREFIX)))
+                this.addPlayer(name);
+        } catch (error) {
+            if (!this.destroyed)
+                console.warn(`LyricFlow: failed to enumerate MPRIS players: ${String(error)}`);
+        }
+    }
+
+    private createProxy(busName: string, interfaceName: string, flags: Gio.DBusProxyFlags, cancellable: Gio.Cancellable): Promise<Gio.DBusProxy> {
+        return new Promise((resolve, reject) => {
+            Gio.DBusProxy.new(this.connection, flags, null, busName, OBJECT_PATH, interfaceName,
+                cancellable, (_source, result) => {
+                    try {
+                        resolve(Gio.DBusProxy.new_finish(result));
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+        });
+    }
+
+    private addPlayer(busName: string, owner?: string): void {
         if (this.destroyed || this.players.has(busName))
             return;
+        if (this.pending.has(busName))
+            return;
+        const initialization: PlayerInitialization = {
+            cancellable: new Gio.Cancellable(), sequence: ++this.sequence, owner,
+        };
+        this.pending.set(busName, initialization);
+        void this.initializePlayer(busName, initialization);
+    }
+
+    private async initializePlayer(busName: string, initialization: PlayerInitialization): Promise<void> {
+        const isCurrent = () => !this.destroyed && this.pending.get(busName) === initialization;
         try {
-            const playerProxy = Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SESSION,
-                Gio.DBusProxyFlags.GET_INVALIDATED_PROPERTIES,
-                null,
-                busName,
-                OBJECT_PATH,
-                PLAYER_INTERFACE,
-                null,
-            );
-            const rootProxy = Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SESSION,
-                Gio.DBusProxyFlags.NONE,
-                null,
-                busName,
-                OBJECT_PATH,
-                ROOT_INTERFACE,
-                null,
-            );
+            let owner = initialization.owner;
+            if (!owner) {
+                const reply = await this.busCall('GetNameOwner', new GLib.Variant('(s)', [busName]), initialization.cancellable);
+                if (!isCurrent())
+                    return;
+                [owner] = reply.deepUnpack() as [string];
+                initialization.owner = owner;
+            }
+            const [playerProxy, rootProxy] = await Promise.all([
+                this.createProxy(owner, PLAYER_INTERFACE, Gio.DBusProxyFlags.GET_INVALIDATED_PROPERTIES, initialization.cancellable),
+                this.createProxy(owner, ROOT_INTERFACE, Gio.DBusProxyFlags.NONE, initialization.cancellable),
+            ]);
+            if (!isCurrent())
+                return;
             const status = playbackStatus(playerProxy);
             const state: PlayerState = {
                 busName,
@@ -153,10 +200,10 @@ export class MprisManager {
                 positionUs: numberProperty(playerProxy, 'Position', 0),
                 rate: numberProperty(playerProxy, 'Rate', 1),
                 sampledAtUs: GLib.get_monotonic_time(),
-                activeSequence: ++this.sequence,
+                activeSequence: initialization.sequence,
                 capabilities: readCapabilities(playerProxy),
             };
-            const managed: ManagedPlayer = {state, playerProxy, rootProxy, signalIds: [], seekGeneration: 0};
+            const managed: ManagedPlayer = {owner, state, playerProxy, rootProxy, signalIds: [], seekGeneration: 0};
             managed.signalIds.push(playerProxy.connect(
                 'g-properties-changed',
                 (_proxy, changedProperties) => this.refreshPlayer(managed, changedProperties),
@@ -170,13 +217,22 @@ export class MprisManager {
                 this.emitChanged();
             }));
             this.players.set(busName, managed);
+            this.emitChanged();
         } catch (error) {
-            console.warn(`LyricFlow: failed to connect to ${busName}: ${String(error)}`);
+            if (isCurrent() && !initialization.cancellable.is_cancelled())
+                console.warn(`LyricFlow: failed to connect to ${busName}: ${String(error)}`);
+        } finally {
+            if (this.pending.get(busName) === initialization) {
+                initialization.cancellable.cancel();
+                this.pending.delete(busName);
+            }
         }
-        this.emitChanged();
     }
 
     private removePlayer(busName: string): void {
+        const initialization = this.pending.get(busName);
+        this.pending.delete(busName);
+        initialization?.cancellable.cancel();
         const managed = this.players.get(busName);
         if (!managed)
             return;
@@ -273,13 +329,15 @@ export class MprisManager {
         const managed = this.players.get(state.busName);
         if (!managed || !state.capabilities.canControl)
             return;
-        managed.playerProxy.call(method, parameters, Gio.DBusCallFlags.NONE, -1, null, (_proxy, result) => {
+        managed.playerProxy.call(method, parameters, Gio.DBusCallFlags.NONE, -1, this.lifetimeCancellable, (_proxy, result) => {
             try {
                 if (result)
                     managed.playerProxy.call_finish(result);
             } catch (error) {
-                console.warn(`LyricFlow: MPRIS ${method} failed: ${String(error)}`);
-                onError?.();
+                if (!this.destroyed && this.players.get(state.busName) === managed) {
+                    console.warn(`LyricFlow: MPRIS ${method} failed: ${String(error)}`);
+                    onError?.();
+                }
             }
         });
     }
@@ -290,7 +348,7 @@ export class MprisManager {
             new GLib.Variant('(ss)', [PLAYER_INTERFACE, 'Position']),
             Gio.DBusCallFlags.NONE,
             -1,
-            null,
+            this.lifetimeCancellable,
             (_proxy, result) => {
                 try {
                     if (!result)
@@ -306,7 +364,8 @@ export class MprisManager {
                     managed.state.sampledAtUs = GLib.get_monotonic_time();
                     this.emitChanged();
                 } catch (error) {
-                    console.warn(`LyricFlow: failed to resync MPRIS position: ${String(error)}`);
+                    if (!this.destroyed && this.players.get(managed.state.busName) === managed)
+                        console.warn(`LyricFlow: failed to resync MPRIS position: ${String(error)}`);
                 }
             },
         );
@@ -314,8 +373,14 @@ export class MprisManager {
 
     destroy(): void {
         this.destroyed = true;
-        if (this.nameSignalId)
+        this.lifetimeCancellable.cancel();
+        for (const initialization of this.pending.values())
+            initialization.cancellable.cancel();
+        this.pending.clear();
+        if (this.nameSignalId) {
             this.connection.signal_unsubscribe(this.nameSignalId);
+            this.nameSignalId = 0;
+        }
         for (const managed of this.players.values()) {
             for (const id of managed.signalIds)
                 managed.playerProxy.disconnect(id);

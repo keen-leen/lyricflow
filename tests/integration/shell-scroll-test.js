@@ -174,18 +174,94 @@ async function focusAndMeasure(indicator, index) {
 }
 
 async function waitForIndicator() {
-    for (let attempt = 0; attempt < 50; attempt++) {
+    for (let attempt = 0; attempt < 150; attempt++) {
         const indicator = Main.extensionManager.lookup(UUID)?.stateObj?.indicator;
         if (indicator)
             return indicator;
         await Scripting.sleep(100);
     }
-    throw new Error('LyricFlow extension did not become active');
+    const extension = Main.extensionManager.lookup(UUID);
+    throw new Error(`LyricFlow extension did not become active: state=${extension?.state}, `
+        + `error=${extension?.error}, enabled=${global.settings.get_strv('enabled-extensions')}, `
+        + `disabled=${global.settings.get_boolean('disable-user-extensions')}`);
+}
+
+async function checkPlaybackIdentity() {
+    const extension = Main.extensionManager.lookup(UUID).stateObj;
+    const originalService = extension.lyricsService;
+    const originalConverter = extension.scriptConverter;
+    const originalPlayer = extension.player;
+    const loads = [];
+    let cancellations = 0;
+    extension.lyricsService = {
+        cancel() { cancellations++; },
+        load() { return new Promise(resolve => loads.push(resolve)); },
+    };
+    extension.scriptConverter = {
+        async convertTrack(track) { return track; },
+        async convertResult(result) { return result; },
+        async convertCandidates(candidates) { return candidates; },
+    };
+    const player = {
+        busName: 'org.mpris.MediaPlayer2.IdentityTest', identity: 'Identity Test',
+        status: 'Paused', positionUs: 0, rate: 1, sampledAtUs: GLib.get_monotonic_time(),
+        capabilities: {canControl: true, canPlay: true, canPause: true,
+            canSeek: true, canGoNext: true, canGoPrevious: true},
+        track: {trackId: '/track/1', title: 'Song', artist: 'Artist', artists: ['Artist'],
+            album: 'Album', lengthUs: 180_000_000, artUrl: ''},
+    };
+    const result = text => ({status: 'synced', candidate: null,
+        timedLines: [{timeMs: 1_000, text}], plainLines: []});
+    try {
+        extension.onPlayerChanged(player);
+        // Mutate the same object: a prior PlayerState reference cannot detect this.
+        player.track.trackId = '/track/2';
+        extension.onPlayerChanged(player);
+        assert(loads.length === 2, 'new track id with identical metadata must reload lyrics');
+        loads[1](result('Current'));
+        await Scripting.sleep(20);
+        loads[0](result('Late'));
+        await Scripting.sleep(20);
+        assert(extension.lyrics?.timedLines[0]?.text === 'Current', 'late load overwrote current lyrics');
+        player.track.artUrl = 'file:///nonexistent-lyricflow-test-cover';
+        extension.onPlayerChanged(player);
+        assert(loads.length === 2, 'artwork change must not reload lyrics');
+        player.track.artUrl = '';
+        player.busName = 'org.mpris.MediaPlayer2.OtherIdentityTest';
+        extension.onPlayerChanged(player);
+        assert(loads.length === 3, 'switching players must create a new playback instance');
+        loads[2](result('Other player'));
+        await Scripting.sleep(20);
+        player.track.trackId = '/org/mpris/MediaPlayer2/TrackList/NoTrack';
+        extension.onPlayerChanged(player);
+        player.track.title = 'Song (Live)';
+        extension.onPlayerChanged(player);
+        assert(loads.length === 5, 'NoTrack must use strict metadata for track changes');
+        loads[4](result('Live'));
+        loads[3](result('Old metadata'));
+        await Scripting.sleep(20);
+        assert(extension.lyrics?.timedLines[0]?.text === 'Live', 'metadata change accepted stale lyrics');
+        player.track.lengthUs += 1_000_000;
+        extension.onPlayerChanged(player);
+        assert(loads.length === 6, 'precise duration change must reload lyrics');
+        extension.onPlayerChanged(null);
+        loads[5](result('After disappearance'));
+        await Scripting.sleep(20);
+        assert(extension.lyrics === null, 'disappeared player accepted a late result');
+        assert(cancellations >= 7, 'each playback change must cancel old requests');
+    } finally {
+        extension.onPlayerChanged(null);
+        extension.lyricsService = originalService;
+        extension.scriptConverter = originalConverter;
+        extension.onPlayerChanged(originalPlayer);
+    }
+    console.log('LyricFlow playback identity test passed');
 }
 
 async function checkScrolling() {
     console.log('LyricFlow shell scroll test running');
     const indicator = await waitForIndicator();
+    await checkPlaybackIdentity();
     await checkButtonStates(indicator);
     await checkLyricLineSeeking(indicator);
     checkLiquidGlass(indicator);

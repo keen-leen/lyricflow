@@ -10,9 +10,10 @@ import type {
     LyricsScriptMode,
     PlayerState,
 } from './types.js';
-import {findActiveLyricIndex, trackCacheKey} from './lyrics/core.js';
+import {findActiveLyricIndex} from './lyrics/core.js';
 import {LyricsScriptConverter, mapLyricsCandidate} from './lyrics/script.js';
 import {LyricsService} from './lyrics/service.js';
+import {playbackIdentity} from './player/identity.js';
 import {MprisManager} from './player/mpris.js';
 import {clampPositionUs, displayedPositionUs, lyricSeekPositionUs} from './player/position.js';
 import {LyricIndicator} from './ui/indicator.js';
@@ -107,7 +108,6 @@ export default class LyricFlowExtension extends Extension {
     }
 
     private onPlayerChanged(player: PlayerState | null): void {
-        const previousPlayer = this.player;
         this.player = player;
         if (!player) {
             this.previewPositionUs = null;
@@ -123,10 +123,8 @@ export default class LyricFlowExtension extends Extension {
         }
 
         this.indicator?.setVisible(true);
-        const nextKey = trackCacheKey(player.track);
-        if (!previousPlayer
-            || previousPlayer.busName !== player.busName
-            || trackCacheKey(previousPlayer.track) !== nextKey)
+        const nextKey = playbackIdentity(player);
+        if (nextKey !== this.trackKey)
             this.previewPositionUs = null;
         const sameTrack = nextKey === this.trackKey;
         this.indicator?.setPlayer(player, sameTrack ? {
@@ -135,6 +133,7 @@ export default class LyricFlowExtension extends Extension {
             album: player.track.album,
         } : undefined);
         if (nextKey !== this.trackKey) {
+            this.lyricsService?.cancel();
             this.trackKey = nextKey;
             this.lyrics = null;
             this.displayLyrics = null;
@@ -155,7 +154,7 @@ export default class LyricFlowExtension extends Extension {
     private async loadLyrics(player: PlayerState, generation: number, force = false): Promise<void> {
         try {
             const result = await this.lyricsService?.load(player.track, force);
-            if (!result || generation !== this.trackGeneration || this.trackKey !== trackCacheKey(player.track))
+            if (!result || generation !== this.trackGeneration || this.trackKey !== playbackIdentity(player))
                 return;
             this.lyrics = result;
             this.searchCandidatesRaw = null;
@@ -245,7 +244,7 @@ export default class LyricFlowExtension extends Extension {
         this.indicator?.showLoading();
         try {
             const candidates = await this.lyricsService.search(player.track);
-            if (generation === this.trackGeneration && this.trackKey === trackCacheKey(player.track)) {
+            if (generation === this.trackGeneration && this.trackKey === playbackIdentity(player)) {
                 this.searchCandidatesRaw = candidates;
                 await this.refreshDisplay();
             }
