@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {broadSearchQuery, decodeLyricsCandidate, findActiveLyricIndex, isUsableLyricsCandidate, mergeSearchCandidates, needsBroadSearch, normalizeTrackText, parseLrc, rankCandidates, resultFromCandidate, scoreCandidate, trackCacheKey} from '../src/lyrics/core.js';
+import {broadSearchQuery, decodeLyricsCandidate, findActiveLyricIndex, isQualifiedCandidate, isUsableLyricsCandidate, mergeSearchCandidates, needsBroadSearch, normalizeTrackText, parseLrc, rankCandidates, resultFromCandidate, scoreCandidate, trackCacheKey, trackTextSimilarity} from '../src/lyrics/core.js';
 import type {LyricsCandidate, TrackMetadata} from '../src/types.js';
 
 const track: TrackMetadata = {
@@ -71,6 +71,21 @@ test('candidate scoring prefers matching metadata and duration', () => {
     assert.deepEqual(rankCandidates(track, [wrong, exact]).map(item => item.id), [1, 2]);
 });
 
+test('candidate qualification requires title plus artist or album and duration identity', () => {
+    assert.equal(isQualifiedCandidate(track, candidate()), true);
+    assert.equal(isQualifiedCandidate(track, candidate({artistName: 'Someone Else'})), true);
+    assert.equal(isQualifiedCandidate(track, candidate({
+        artistName: 'Someone Else',
+        albumName: '',
+        duration: 0,
+    })), false);
+    assert.equal(isQualifiedCandidate(track, candidate({trackName: 'Another Song'})), false);
+});
+
+test('latin artist word order does not reduce similarity', () => {
+    assert.equal(trackTextSimilarity('Leehom Wang', 'Wang Leehom'), 1);
+});
+
 test('broad search query removes presentation suffixes and uses the first artist', () => {
     assert.equal(broadSearchQuery({...track, title: 'Song (Remastered 2011)'}), 'song fleetwood mac');
     assert.equal(broadSearchQuery({...track, title: 'Song [feat. Guest]'}), 'song fleetwood mac');
@@ -85,6 +100,8 @@ test('broad search query removes presentation suffixes and uses the first artist
 
 test('low-confidence or unusable candidates trigger broad search', () => {
     assert.equal(needsBroadSearch(track, [candidate()]), false);
+    assert.equal(needsBroadSearch(track, [candidate({syncedLyrics: null, plainLyrics: 'Plain lyrics'})]), true);
+    assert.equal(needsBroadSearch(track, [candidate({instrumental: true, syncedLyrics: null, plainLyrics: null})]), true);
     assert.equal(needsBroadSearch(track, [candidate({syncedLyrics: null, plainLyrics: null})]), true);
     assert.equal(needsBroadSearch(track, [candidate({trackName: 'Another Song', artistName: 'Someone Else'})]), true);
 });
@@ -96,6 +113,27 @@ test('merged search results deduplicate, skip empty lyrics, and prefer synced cl
     const merged = mergeSearchCandidates(track, [empty, plain], [plain, synced]);
     assert.deepEqual(merged.map(item => item.id), [4, 3]);
     assert.equal(isUsableLyricsCandidate(empty), false);
+});
+
+test('qualified synchronized lyrics always rank before qualified plain lyrics', () => {
+    const exactPlain = candidate({id: 2, syncedLyrics: null, plainLyrics: 'Plain lyrics'});
+    const slightlyLowerSynced = candidate({id: 3, albumName: 'Rumours Deluxe'});
+    assert.deepEqual(
+        mergeSearchCandidates(track, [exactPlain, slightlyLowerSynced]).map(item => item.id),
+        [3, 2],
+    );
+});
+
+test('low-confidence synchronized lyrics cannot displace qualified plain lyrics', () => {
+    const plain = candidate({id: 2, syncedLyrics: null, plainLyrics: 'Plain lyrics'});
+    const wrongSynced = candidate({id: 3, trackName: 'Another Song', artistName: 'Someone Else'});
+    assert.deepEqual(mergeSearchCandidates(track, [wrongSynced, plain]).map(item => item.id), [2]);
+});
+
+test('candidate ids are deduplicated within a provider but remain distinct across providers', () => {
+    const lrclib = candidate({id: 9, source: 'lrclib'});
+    const netease = candidate({id: 9, source: 'netease'});
+    assert.equal(mergeSearchCandidates(track, [lrclib, lrclib], [netease]).length, 2);
 });
 
 test('fixed LRCLIB responses decode synchronized, plain, and instrumental results', () => {
@@ -111,6 +149,7 @@ test('malformed LRCLIB candidates are rejected and optional fields are normalize
     assert.equal(decodeLyricsCandidate({trackName: 'Missing id'}), null);
     assert.deepEqual(decodeLyricsCandidate({id: 7, trackName: 'Song', artistName: 'Artist'}), {
         id: 7,
+        source: 'lrclib',
         trackName: 'Song',
         artistName: 'Artist',
         albumName: '',

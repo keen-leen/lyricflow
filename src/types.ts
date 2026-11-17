@@ -39,6 +39,7 @@ export interface TimedLyricLine {
 
 export interface LyricsCandidate {
     id: number;
+    source?: 'lrclib' | 'netease';
     trackName: string;
     artistName: string;
     albumName: string;
@@ -69,6 +70,12 @@ export interface LyricsResult {
 export interface LyricsProvider {
     find(track: TrackMetadata, cancellable?: unknown): Promise<LyricsResult>;
     search(track: TrackMetadata, cancellable?: unknown): Promise<LyricsCandidate[]>;
+}
+
+export interface LyricsProviderOutcome {
+    candidates: LyricsCandidate[];
+    successfulRequests: number;
+    errors: string[];
 }
 
 export interface CacheEntry {

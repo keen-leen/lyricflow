@@ -8,6 +8,10 @@ const SEARCH_TEXT_SUFFIX = /\s*(?:[-\u2013\u2014]\s*)?(?:(?:\d{4}\s+)?remaster(?
 const SEARCH_FEATURE_SUFFIX = /\s+(?:feat\.?|ft\.?|with)\s+.+$/iu;
 
 const SEARCH_CONFIDENCE_THRESHOLD = 0.70;
+const TITLE_CONFIDENCE_THRESHOLD = 0.82;
+const ARTIST_CONFIDENCE_THRESHOLD = 0.55;
+const ALBUM_CONFIDENCE_THRESHOLD = 0.82;
+const DURATION_CONFIDENCE_SECONDS = 3;
 const MAX_SEARCH_CANDIDATES = 8;
 
 export function normalizeTrackText(value: string): string {
@@ -132,6 +136,7 @@ export function decodeLyricsCandidate(value: unknown): LyricsCandidate | null {
         return null;
     return {
         id: raw.id,
+        source: 'lrclib',
         trackName: raw.trackName,
         artistName: raw.artistName,
         albumName: typeof raw.albumName === 'string' ? raw.albumName : '',
@@ -164,7 +169,7 @@ export function findActiveLyricIndex(
     return answer;
 }
 
-function similarity(left: string, right: string): number {
+export function trackTextSimilarity(left: string, right: string): number {
     const a = normalizeTrackText(left);
     const b = normalizeTrackText(right);
     if (!a || !b)
@@ -182,43 +187,80 @@ function similarity(left: string, right: string): number {
 }
 
 export function scoreCandidate(track: TrackMetadata, candidate: LyricsCandidate): number {
-    const title = similarity(track.title, candidate.trackName);
-    const artist = similarity(track.artist, candidate.artistName);
+    return candidateMatch(track, candidate).score;
+}
+
+export interface CandidateMatch {
+    title: number;
+    artist: number;
+    album: number;
+    durationDifference: number | null;
+    score: number;
+    qualified: boolean;
+}
+
+export function candidateMatch(track: TrackMetadata, candidate: LyricsCandidate): CandidateMatch {
+    const title = trackTextSimilarity(track.title, candidate.trackName);
+    const artist = trackTextSimilarity(track.artist, candidate.artistName);
     const album = track.album && candidate.albumName
-        ? similarity(track.album, candidate.albumName)
+        ? trackTextSimilarity(track.album, candidate.albumName)
         : 0.5;
     const trackSeconds = track.lengthUs / 1_000_000;
     const durationDifference = trackSeconds > 0 && candidate.duration > 0
         ? Math.abs(trackSeconds - candidate.duration)
-        : 15;
-    const duration = Math.max(0, 1 - durationDifference / 30);
-    return title * 0.45 + artist * 0.30 + album * 0.10 + duration * 0.15;
+        : null;
+    const duration = durationDifference === null ? 0.5 : Math.max(0, 1 - durationDifference / 30);
+    const score = title * 0.45 + artist * 0.30 + album * 0.10 + duration * 0.15;
+    const identityMatches = artist >= ARTIST_CONFIDENCE_THRESHOLD
+        || (track.album.length > 0
+            && candidate.albumName.length > 0
+            && album >= ALBUM_CONFIDENCE_THRESHOLD
+            && durationDifference !== null
+            && durationDifference <= DURATION_CONFIDENCE_SECONDS);
+    return {
+        title,
+        artist,
+        album,
+        durationDifference,
+        score,
+        qualified: title >= TITLE_CONFIDENCE_THRESHOLD
+            && identityMatches
+            && score >= SEARCH_CONFIDENCE_THRESHOLD,
+    };
+}
+
+export function isQualifiedCandidate(track: TrackMetadata, candidate: LyricsCandidate): boolean {
+    return candidateMatch(track, candidate).qualified;
+}
+
+export function isTextLyricsCandidate(candidate: LyricsCandidate): boolean {
+    return lyricsCandidateQuality(candidate) >= 2;
 }
 
 export function rankCandidates(track: TrackMetadata, candidates: LyricsCandidate[]): LyricsCandidate[] {
     return [...candidates].sort((a, b) => {
-        // Availability is a small tie-breaker: metadata remains decisive unless two
-        // records are close enough that synchronized lyrics are the more useful choice.
-        const aScore = scoreCandidate(track, a) + lyricsCandidateQuality(a) * 0.01;
-        const bScore = scoreCandidate(track, b) + lyricsCandidateQuality(b) * 0.01;
-        return bScore - aScore;
+        const qualityDifference = lyricsCandidateQuality(b) - lyricsCandidateQuality(a);
+        return qualityDifference || scoreCandidate(track, b) - scoreCandidate(track, a);
     });
 }
 
 export function needsBroadSearch(track: TrackMetadata, candidates: LyricsCandidate[]): boolean {
     return !candidates.some(candidate =>
-        isUsableLyricsCandidate(candidate)
-        && scoreCandidate(track, candidate) >= SEARCH_CONFIDENCE_THRESHOLD);
+        lyricsCandidateQuality(candidate) === 3
+        && isQualifiedCandidate(track, candidate));
 }
 
 export function mergeSearchCandidates(
     track: TrackMetadata,
     ...groups: LyricsCandidate[][]
 ): LyricsCandidate[] {
-    const byId = new Map<number, LyricsCandidate>();
+    const byId = new Map<string, LyricsCandidate>();
     for (const candidate of groups.flat()) {
-        if (!byId.has(candidate.id) && isUsableLyricsCandidate(candidate))
-            byId.set(candidate.id, candidate);
+        const key = `${candidate.source ?? 'lrclib'}:${candidate.id}`;
+        if (!byId.has(key)
+            && isUsableLyricsCandidate(candidate)
+            && isQualifiedCandidate(track, candidate))
+            byId.set(key, candidate);
     }
     return rankCandidates(track, [...byId.values()]).slice(0, MAX_SEARCH_CANDIDATES);
 }
