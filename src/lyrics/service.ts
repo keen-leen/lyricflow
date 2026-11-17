@@ -1,19 +1,44 @@
 import Gio from 'gi://Gio';
 
-import type {LyricsCandidate, LyricsResult, TrackMetadata} from '../types.js';
+import type {LyricsCandidate, LyricsProviderOutcome, LyricsResult, TrackMetadata} from '../types.js';
 import {LyricsCache} from '../cache/store.js';
-import {resultFromCandidate} from './core.js';
+import {
+    isTextLyricsCandidate,
+    lyricsCandidateQuality,
+    resultFromCandidate,
+} from './core.js';
 import {LrclibProvider} from './lrclib.js';
+import {NeteaseProvider} from './netease.js';
+import {combineProviderOutcomes, type CombinedLyricsOutcome} from './selection.js';
+
+function hasSynchronizedLyrics(outcome: LyricsProviderOutcome): boolean {
+    return outcome.candidates.some(candidate => lyricsCandidateQuality(candidate) === 3);
+}
 
 export class LyricsService {
     private readonly cache = new LyricsCache();
-    private readonly provider = new LrclibProvider();
+    private readonly lrclib = new LrclibProvider();
+    private readonly netease = new NeteaseProvider();
     private cancellable: Gio.Cancellable | null = null;
 
     private newRequest(): Gio.Cancellable {
         this.cancellable?.cancel();
         this.cancellable = new Gio.Cancellable();
         return this.cancellable;
+    }
+
+    private async collect(track: TrackMetadata, cancellable: Gio.Cancellable): Promise<CombinedLyricsOutcome> {
+        const primary = await this.lrclib.collect(track, cancellable);
+        if (hasSynchronizedLyrics(primary)) {
+            return {
+                candidates: primary.candidates.filter(isTextLyricsCandidate),
+                successfulRequests: primary.successfulRequests,
+                errors: primary.errors,
+            };
+        }
+
+        const fallback = await this.netease.collect(track, cancellable);
+        return combineProviderOutcomes(track, primary, fallback);
     }
 
     async load(track: TrackMetadata, force = false): Promise<LyricsResult> {
@@ -23,14 +48,40 @@ export class LyricsService {
 
         const cancellable = this.newRequest();
         try {
-            const result = await this.provider.find(track, cancellable);
-            if (!cancellable.is_cancelled())
+            const outcome = await this.collect(track, cancellable);
+            const best = outcome.candidates[0];
+            let result: LyricsResult;
+            if (best) {
+                result = resultFromCandidate(best);
+                console.debug(
+                    `LyricFlow: selected ${best.source ?? 'lrclib'}:${best.id}`
+                    + ` quality=${lyricsCandidateQuality(best)}`,
+                );
+            } else if (outcome.successfulRequests > 0) {
+                result = {status: 'not-found', candidate: null, timedLines: [], plainLines: []};
+            } else {
+                result = {
+                    status: 'error',
+                    candidate: null,
+                    timedLines: [],
+                    plainLines: [],
+                    message: outcome.errors.join('; ') || 'All lyrics providers failed',
+                };
+            }
+
+            if (cancellable.is_cancelled())
+                throw new Error('Lyrics request was cancelled');
+            if ((result.status === 'not-found' || result.status === 'error')
+                && cached
+                && (cached.result.status === 'synced' || cached.result.status === 'plain'))
+                return {...cached.result, stale: true};
+            if (result.status !== 'error')
                 this.cache.write(track, result);
             return result;
         } catch (error) {
             if (cancellable.is_cancelled())
                 throw error;
-            if (cached && cached.result.status !== 'not-found')
+            if (cached && (cached.result.status === 'synced' || cached.result.status === 'plain'))
                 return {...cached.result, stale: true};
             return {
                 status: 'error',
@@ -42,8 +93,13 @@ export class LyricsService {
         }
     }
 
-    search(track: TrackMetadata): Promise<LyricsCandidate[]> {
-        return this.provider.search(track, this.newRequest());
+    async search(track: TrackMetadata): Promise<LyricsCandidate[]> {
+        const outcome = await this.collect(track, this.newRequest());
+        if (outcome.candidates.length === 0
+            && outcome.successfulRequests === 0
+            && outcome.errors.length > 0)
+            throw new Error(outcome.errors.join('; '));
+        return outcome.candidates;
     }
 
     select(track: TrackMetadata, candidate: LyricsCandidate): LyricsResult {
@@ -59,6 +115,7 @@ export class LyricsService {
 
     destroy(): void {
         this.cancel();
-        this.provider.abort();
+        this.lrclib.abort();
+        this.netease.abort();
     }
 }

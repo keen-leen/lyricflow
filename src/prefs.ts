@@ -120,8 +120,8 @@ export default class LyricFlowPreferences extends ExtensionPreferences {
         const privacy = new Adw.PreferencesGroup({title: this.gettext('Lyrics service')});
         page.add(privacy);
         privacy.add(new Adw.ActionRow({
-            title: 'LRCLIB',
-            subtitle: this.gettext('Song title, artist, album, and duration are sent to LRCLIB when lyrics are requested. No account or credential is used.'),
+            title: this.gettext('LRCLIB and NetEase'),
+            subtitle: this.gettext('Song metadata is sent to LRCLIB and, when synchronized lyrics are unavailable, to NetEase. No account, cookie, playback history, or lyric text is sent.'),
         }));
         await Promise.resolve();
     }

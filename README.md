@@ -1,8 +1,8 @@
 # LyricFlow
 
 LyricFlow 是面向 GNOME Shell 50 的顶栏同步歌词扩展。它直接监听 MPRIS
-播放器，通过 LRCLIB 获取同步歌词，并在点击顶栏后显示封面、播放控制和完整
-歌词。
+播放器，优先通过 LRCLIB 获取同步歌词，并在需要时降级到网易云音乐；点击顶栏后
+显示封面、播放控制和完整歌词。
 
 > 本项目当前由 AI 辅助生成，仅供个人使用。在理解并能够维护代码之前，请勿
 > 上传到 extensions.gnome.org。
@@ -13,9 +13,9 @@ LyricFlow 是面向 GNOME Shell 50 的顶栏同步歌词扩展。它直接监听
 - 切歌时显示歌曲信息，随后按播放位置切换同步歌词。
 - 长歌词平滑滚动，暂停时冻结，没有播放器时自动隐藏。
 - 弹窗提供封面、上一首、播放/暂停、下一首、进度拖动和完整歌词，点击同步歌词可跳转播放。
-- LRCLIB 精确查询、宽松关键词降级和候选重选，支持全局 ±10 秒歌词偏移。
+- LRCLIB 分阶段查询与网易云同步歌词降级，支持候选重选和全局 ±10 秒歌词偏移。
 - 默认把繁体歌词离线转换为简体，也可切换为标准繁体或保留原文。
-- 成功歌词缓存 30 天，未命中缓存 24 小时；离线时使用已有歌词缓存。
+- 同步歌词缓存 30 天，纯文本和未命中缓存 24 小时；离线时使用已有歌词缓存。
 - GNOME 原生设置页和简体中文翻译。
 
 ## 环境与构建
@@ -70,15 +70,16 @@ make shell-test
 
 ## 隐私
 
-请求歌词时会把歌名、歌手、专辑和时长发送给 `https://lrclib.net`。扩展不使用
-账号、Cookie 或 API 密钥。缓存位于 `$XDG_CACHE_HOME/lyricflow/lyrics`。
+请求歌词时会把歌曲元数据发送给 `https://lrclib.net`；没有同步歌词时会把搜索
+元数据发送给 `https://music.163.com`。扩展不发送账号、Cookie、播放记录或歌词
+正文。缓存位于 `$XDG_CACHE_HOME/lyricflow/lyrics`。
 
 ## English
 
-LyricFlow is a GNOME Shell 50 extension that shows synchronized LRCLIB lyrics
-in the top bar and exposes a native popup with artwork, media controls, progress,
-and full lyrics. It talks directly to MPRIS over D-Bus and has no background
-service or runtime npm dependency.
+LyricFlow is a GNOME Shell 50 extension that shows synchronized lyrics from
+LRCLIB with a NetEase fallback. It exposes a native popup with artwork, media
+controls, progress, and full lyrics. It talks directly to MPRIS over D-Bus and
+has no background service or runtime npm dependency.
 
 ## License
 

@@ -1,113 +1,139 @@
 import Gio from 'gi://Gio';
-import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 
-import type {LyricsCandidate, LyricsProvider, LyricsResult, TrackMetadata} from '../types.js';
+import type {LyricsCandidate, LyricsProviderOutcome, LyricsResult, TrackMetadata} from '../types.js';
 import {
     broadSearchQuery,
+    candidateMatch,
     decodeLyricsCandidate,
-    isUsableLyricsCandidate,
     mergeSearchCandidates,
     needsBroadSearch,
     resultFromCandidate,
 } from './core.js';
+import {HttpError, queryParams, requestJson} from './http.js';
 
 const BASE_URL = 'https://lrclib.net';
 const USER_AGENT = 'LyricFlow/0.1.0 (https://github.com/keen/lyricflow)';
 
-class HttpError extends Error {
-    constructor(readonly status: number, message: string) {
-        super(message);
+function decodeCandidateList(value: unknown): LyricsCandidate[] {
+    return Array.isArray(value)
+        ? value.map(decodeLyricsCandidate).filter((candidate): candidate is LyricsCandidate => candidate !== null)
+        : [];
+}
+
+function isCancelled(cancellable?: unknown): boolean {
+    return cancellable instanceof Gio.Cancellable && cancellable.is_cancelled();
+}
+
+function logCandidates(track: TrackMetadata, stage: string, candidates: LyricsCandidate[]): void {
+    console.debug(`LyricFlow: ${stage} decoded ${candidates.length} candidates`);
+    for (const candidate of candidates.slice(0, 8)) {
+        const match = candidateMatch(track, candidate);
+        console.debug(
+            `LyricFlow: ${stage} candidate lrclib:${candidate.id}`
+            + ` score=${match.score.toFixed(3)} title=${match.title.toFixed(3)}`
+            + ` artist=${match.artist.toFixed(3)} album=${match.album.toFixed(3)}`
+            + ` durationDelta=${match.durationDifference?.toFixed(1) ?? 'unknown'}`
+            + ` qualified=${match.qualified}`,
+        );
     }
 }
 
-function params(values: Record<string, string | number | undefined>): string {
-    return Object.entries(values)
-        .filter(([, value]) => value !== undefined && value !== '')
-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
-        .join('&');
-}
-
-export class LrclibProvider implements LyricsProvider {
+export class LrclibProvider {
     private readonly session = new Soup.Session({user_agent: USER_AGENT, timeout: 12});
 
-    private request(url: string, cancellable?: unknown): Promise<unknown> {
-        const message = Soup.Message.new('GET', url);
-        return new Promise((resolve, reject) => {
-            this.session.send_and_read_async(
-                message,
-                GLib.PRIORITY_DEFAULT,
-                cancellable instanceof Gio.Cancellable ? cancellable : null,
-                (session, result) => {
-                    try {
-                        const bytes = session?.send_and_read_finish(result);
-                        const status = message.status_code;
-                        if (status < 200 || status >= 300)
-                            throw new HttpError(status, `LRCLIB returned HTTP ${status}`);
-                        const text = new TextDecoder().decode(bytes?.get_data() ?? new Uint8Array());
-                        resolve(JSON.parse(text));
-                    } catch (error) {
-                        reject(error);
-                    }
-                },
-            );
-        });
-    }
+    async collect(track: TrackMetadata, cancellable?: unknown): Promise<LyricsProviderOutcome> {
+        const groups: LyricsCandidate[][] = [];
+        const errors: string[] = [];
+        let successfulRequests = 0;
 
-    async find(track: TrackMetadata, cancellable?: unknown): Promise<LyricsResult> {
-        const query = params({
+        const exactQuery = queryParams({
             track_name: track.title,
             artist_name: track.artist,
             album_name: track.album || undefined,
             duration: track.lengthUs > 0 ? Math.round(track.lengthUs / 1_000_000) : undefined,
         });
         try {
-            const value = await this.request(`${BASE_URL}/api/get?${query}`, cancellable);
+            const value = await requestJson(
+                this.session,
+                `${BASE_URL}/api/get?${exactQuery}`,
+                'LRCLIB exact search',
+                cancellable,
+            );
+            successfulRequests++;
             const candidate = decodeLyricsCandidate(value);
-            if (candidate && isUsableLyricsCandidate(candidate))
-                return resultFromCandidate(candidate);
+            const candidates = candidate ? [candidate] : [];
+            groups.push(candidates);
+            logCandidates(track, 'LRCLIB exact search', candidates);
+            const merged = mergeSearchCandidates(track, ...groups);
+            if (!needsBroadSearch(track, merged))
+                return {candidates: merged, successfulRequests, errors};
         } catch (error) {
-            if (!(error instanceof HttpError) || error.status !== 404)
+            if (isCancelled(cancellable))
                 throw error;
+            if (error instanceof HttpError && error.status === 404)
+                successfulRequests++;
+            else
+                errors.push(`exact: ${String(error)}`);
+            console.debug(`LyricFlow: LRCLIB exact search did not produce synchronized lyrics: ${String(error)}`);
         }
 
-        const candidates = await this.search(track, cancellable);
-        const best = candidates[0];
+        try {
+            const structuredQuery = queryParams({track_name: track.title, artist_name: track.artist});
+            const value = await requestJson(
+                this.session,
+                `${BASE_URL}/api/search?${structuredQuery}`,
+                'LRCLIB structured search',
+                cancellable,
+            );
+            successfulRequests++;
+            const candidates = decodeCandidateList(value);
+            groups.push(candidates);
+            logCandidates(track, 'LRCLIB structured search', candidates);
+            const merged = mergeSearchCandidates(track, ...groups);
+            if (!needsBroadSearch(track, merged))
+                return {candidates: merged, successfulRequests, errors};
+        } catch (error) {
+            if (isCancelled(cancellable))
+                throw error;
+            errors.push(`structured: ${String(error)}`);
+            console.debug(`LyricFlow: LRCLIB structured search failed: ${String(error)}`);
+        }
+
+        const broadQuery = broadSearchQuery(track);
+        if (broadQuery) {
+            try {
+                const value = await requestJson(
+                    this.session,
+                    `${BASE_URL}/api/search?${queryParams({q: broadQuery})}`,
+                    'LRCLIB broad search',
+                    cancellable,
+                );
+                successfulRequests++;
+                const candidates = decodeCandidateList(value);
+                groups.push(candidates);
+                logCandidates(track, 'LRCLIB broad search', candidates);
+            } catch (error) {
+                if (isCancelled(cancellable))
+                    throw error;
+                errors.push(`broad: ${String(error)}`);
+                console.debug(`LyricFlow: LRCLIB broad search failed: ${String(error)}`);
+            }
+        }
+
+        return {candidates: mergeSearchCandidates(track, ...groups), successfulRequests, errors};
+    }
+
+    async find(track: TrackMetadata, cancellable?: unknown): Promise<LyricsResult> {
+        const outcome = await this.collect(track, cancellable);
+        const best = outcome.candidates[0];
         return best
             ? resultFromCandidate(best)
             : {status: 'not-found', candidate: null, timedLines: [], plainLines: []};
     }
 
     async search(track: TrackMetadata, cancellable?: unknown): Promise<LyricsCandidate[]> {
-        const structuredQuery = params({track_name: track.title, artist_name: track.artist});
-        const structuredValue = await this.request(`${BASE_URL}/api/search?${structuredQuery}`, cancellable);
-        const structuredCandidates = Array.isArray(structuredValue)
-            ? structuredValue.map(decodeLyricsCandidate).filter((candidate): candidate is LyricsCandidate => candidate !== null)
-            : [];
-        if (!needsBroadSearch(track, structuredCandidates))
-            return mergeSearchCandidates(track, structuredCandidates);
-
-        const keywordQuery = broadSearchQuery(track);
-        if (!keywordQuery)
-            return mergeSearchCandidates(track, structuredCandidates);
-
-        try {
-            const broadValue = await this.request(
-                `${BASE_URL}/api/search?${params({q: keywordQuery})}`,
-                cancellable,
-            );
-            const broadCandidates = Array.isArray(broadValue)
-                ? broadValue.map(decodeLyricsCandidate).filter((candidate): candidate is LyricsCandidate => candidate !== null)
-                : [];
-            return mergeSearchCandidates(track, structuredCandidates, broadCandidates);
-        } catch (error) {
-            if (cancellable instanceof Gio.Cancellable && cancellable.is_cancelled())
-                throw error;
-            const candidates = mergeSearchCandidates(track, structuredCandidates);
-            if (candidates.length > 0)
-                return candidates;
-            throw error;
-        }
+        return (await this.collect(track, cancellable)).candidates;
     }
 
     abort(): void {
