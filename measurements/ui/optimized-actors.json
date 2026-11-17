@@ -1,0 +1,46 @@
+{
+  "recordedAt": "2026-11-17T10:14:51.610Z",
+  "warmupMs": 5000,
+  "sampleMs": 20000,
+  "repeats": 3,
+  "cpuClockTicksPerSecond": 100,
+  "rows": [],
+  "actorRows": [
+    {
+      "artworkCreations": 0,
+      "iconCreations": 0,
+      "elapsedTextWrites": 0,
+      "durationTextWrites": 0,
+      "pausedStyleCalls": 0,
+      "progressCalls": 100,
+      "progressChanges": 0,
+      "trial": 0,
+      "calls": 100,
+      "elapsedUs": 564
+    },
+    {
+      "artworkCreations": 0,
+      "iconCreations": 0,
+      "elapsedTextWrites": 0,
+      "durationTextWrites": 0,
+      "pausedStyleCalls": 0,
+      "progressCalls": 100,
+      "progressChanges": 0,
+      "trial": 1,
+      "calls": 100,
+      "elapsedUs": 243
+    },
+    {
+      "artworkCreations": 0,
+      "iconCreations": 0,
+      "elapsedTextWrites": 0,
+      "durationTextWrites": 0,
+      "pausedStyleCalls": 0,
+      "progressCalls": 100,
+      "progressChanges": 0,
+      "trial": 2,
+      "calls": 100,
+      "elapsedUs": 250
+    }
+  ]
+}

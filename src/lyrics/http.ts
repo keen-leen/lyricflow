@@ -1,6 +1,7 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
+import {observeCancellation} from './cancellation.js';
 import {shouldRetryHttpStatus} from './http-policy.js';
 
 const RETRY_DELAY_MS = 300;
@@ -15,12 +16,24 @@ function isCancelled(cancellable?: unknown): boolean {
     return cancellable instanceof Gio.Cancellable && cancellable.is_cancelled();
 }
 
-function waitBeforeRetry(): Promise<void> {
-    return new Promise(resolve => {
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, RETRY_DELAY_MS, () => {
-            resolve();
+function waitBeforeRetry(cancellable?: unknown): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const token = cancellable instanceof Gio.Cancellable ? cancellable : null;
+        let detach = () => {};
+        let timer = 0;
+        const finish = (cancelled: boolean) => {
+            if (timer) { GLib.source_remove(timer); timer = 0; }
+            detach();
+            if (cancelled) reject(new Error('Lyrics request was cancelled'));
+            else resolve();
+        };
+        timer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, RETRY_DELAY_MS, () => {
+            timer = 0;
+            finish(false);
             return GLib.SOURCE_REMOVE;
         });
+        if (token) detach = observeCancellation(token, () => finish(true));
+        if (token?.is_cancelled()) finish(true);
     });
 }
 
@@ -71,7 +84,7 @@ export async function requestJson(
             if (attempt > 0 || !retryable)
                 throw error;
             console.debug(`LyricFlow: ${stage} failed, retrying once: ${String(error)}`);
-            await waitBeforeRetry();
+            await waitBeforeRetry(cancellable);
             if (isCancelled(cancellable))
                 throw error;
         }

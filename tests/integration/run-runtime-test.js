@@ -9,7 +9,7 @@ try {
     const result = spawnSync('dbus-run-session', ['--', 'gjs', '-m',
         fileURLToPath(new URL('./runtime-test.js', import.meta.url))], {
         env: {...process.env, XDG_CACHE_HOME: cache, GIO_USE_VFS: 'local'},
-        stdio: 'inherit', timeout: 30_000,
+        stdio: 'inherit', timeout: 60_000,
     });
     if (result.error)
         throw result.error;

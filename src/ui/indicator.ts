@@ -24,6 +24,7 @@ const GLASS_STRENGTH_CLASSES = [
 ];
 
 export interface IndicatorActions {
+    menuChanged(): void;
     previous(): void;
     playPause(): void;
     next(): void;
@@ -84,6 +85,9 @@ export class LyricIndicator {
     private topSpacer: St.Widget | null = null;
     private bottomSpacer: St.Widget | null = null;
     private activeIndex = -1;
+    private requestMessage: string | null = null;
+    private lyricsStatusMessage = '';
+    private lyricsFingerprint = '';
     private marqueeSource = 0;
     private centerLaterId = 0;
     private centerPending = false;
@@ -91,6 +95,11 @@ export class LyricIndicator {
     private draggingProgress = false;
     private lyricsSeekable = false;
     private disposed = false;
+    private paused: boolean | null = null;
+    private artworkUri: string | null = null;
+    private playIconName = '';
+    private progressPositionUs: number | null = null;
+    private progressLengthUs: number | null = null;
     private glassEffect: Shell.BlurEffect | null = null;
     private glassBackground: {red: number; green: number; blue: number} | null = null;
     private appearance: IndicatorAppearance = {
@@ -145,6 +154,7 @@ export class LyricIndicator {
                 this.requestActiveLyricCenter();
             else
                 this.cancelCentering();
+            this.actions.menuChanged();
         });
 
         const header = new St.BoxLayout({vertical: false, style_class: 'lyricflow-header'});
@@ -366,9 +376,12 @@ export class LyricIndicator {
         this.button.visible = visible;
     }
 
+    get menuOpen(): boolean { return this.menu.isOpen; }
+
     setPaused(paused: boolean): void {
-        if (this.disposed)
+        if (this.disposed || this.paused === paused)
             return;
+        this.paused = paused;
         if (paused)
             this.button.add_style_pseudo_class('paused');
         else
@@ -445,10 +458,11 @@ export class LyricIndicator {
         this.nextButton.reactive = player.capabilities.canGoNext;
         this.nextButton.opacity = player.capabilities.canGoNext ? 255 : 90;
         this.playButton.reactive = player.capabilities.canPlay || player.capabilities.canPause;
-        this.playButton.set_child(new St.Icon({
-            icon_name: player.status === 'Playing' ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic',
-            icon_size: 20,
-        }));
+        const iconName = player.status === 'Playing' ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic';
+        if (iconName !== this.playIconName) {
+            this.playIconName = iconName;
+            this.playButton.set_child(new St.Icon({icon_name: iconName, icon_size: 20}));
+        }
         this.progress.reactive = player.capabilities.canSeek && player.track.lengthUs > 0;
         this.lyricsSeekable = player.capabilities.canControl && player.capabilities.canSeek;
         for (const button of this.lyricSeekButtons)
@@ -456,6 +470,8 @@ export class LyricIndicator {
     }
 
     private setArtwork(uri: string): void {
+        if (uri === this.artworkUri) return;
+        this.artworkUri = uri;
         let child: Clutter.Actor = new St.Icon({
             icon_name: 'audio-x-generic-symbolic',
             icon_size: 34,
@@ -480,6 +496,10 @@ export class LyricIndicator {
     setProgress(fraction: number, positionUs: number, lengthUs: number): void {
         if (this.disposed)
             return;
+        if (!this.draggingProgress && this.progressPositionUs === positionUs && this.progressLengthUs === lengthUs)
+            return;
+        this.progressPositionUs = positionUs;
+        this.progressLengthUs = lengthUs;
         if (!this.draggingProgress) {
             this.suppressSeek = true;
             this.progress.value = Math.max(0, Math.min(1, fraction));
@@ -495,10 +515,20 @@ export class LyricIndicator {
         this.offsetLabel.text = `${offsetMs > 0 ? '+' : ''}${offsetMs} ms`;
     }
 
+    setRequestState(message: string | null): void {
+        if (this.disposed) return;
+        this.requestMessage = message;
+        this.statusLabel.text = message ?? this.lyricsStatusMessage;
+        this.statusLabel.visible = Boolean(this.statusLabel.text);
+    }
+
     showLoading(): void {
         if (this.disposed)
             return;
-        this.statusLabel.text = this.gettext('Searching for lyrics…');
+        this.requestMessage = null;
+        this.lyricsFingerprint = '';
+        this.lyricsStatusMessage = this.gettext('Searching for lyrics…');
+        this.statusLabel.text = this.lyricsStatusMessage;
         this.statusLabel.visible = true;
         this.clearLyricsBox();
     }
@@ -506,6 +536,9 @@ export class LyricIndicator {
     setLyrics(result: LyricsResult): void {
         if (this.disposed)
             return;
+        const fingerprint = JSON.stringify(result);
+        if (fingerprint === this.lyricsFingerprint) return;
+        this.lyricsFingerprint = fingerprint;
         this.clearLyricsBox();
         this.activeIndex = -1;
         const statusMessages: Partial<Record<LyricsResult['status'], string>> = {
@@ -514,9 +547,9 @@ export class LyricIndicator {
             error: this.gettext('Could not load lyrics'),
             plain: this.gettext('Unsynchronized lyrics'),
         };
-        const message = statusMessages[result.status] ?? (result.stale ? this.gettext('Offline lyrics cache') : '');
-        this.statusLabel.text = message;
-        this.statusLabel.visible = Boolean(message);
+        const message = statusMessages[result.status] ?? (result.stale ? this.gettext('Cached lyrics') : '');
+        this.lyricsStatusMessage = message;
+        this.setRequestState(this.requestMessage);
 
         const lines = result.status === 'synced'
             ? result.timedLines.map(line => ({text: line.text, timeMs: line.timeMs}))
@@ -671,6 +704,8 @@ export class LyricIndicator {
         if (this.disposed)
             return;
         this.clearLyricsBox();
+        this.lyricsFingerprint = '';
+        this.requestMessage = null;
         this.statusLabel.text = candidates.length
             ? this.gettext('Choose the correct lyrics')
             : this.gettext('No lyrics found');

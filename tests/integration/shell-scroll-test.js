@@ -223,6 +223,36 @@ async function checkPlaybackIdentity() {
         loads[0](result('Late'));
         await Scripting.sleep(20);
         assert(extension.lyrics?.timedLines[0]?.text === 'Current', 'late load overwrote current lyrics');
+        player.positionUs = 2_000_000;
+        extension.infoUntilUs = GLib.get_monotonic_time() + 50_000;
+        extension.updateUi();
+        await Scripting.sleep(100);
+        assert(extension.displayedLyric === 0 && extension.tickSource === 0,
+            'paused track must finish its information deadline without periodic polling');
+        player.status = 'Playing';
+        player.sampledAtUs = GLib.get_monotonic_time();
+        extension.onPlayerChanged(player);
+        extension.indicator.menu.open();
+        assert(extension.progressTick && extension.tickSource !== 0,
+            'visible playing popup must keep its progress timer');
+        await Scripting.sleep(120);
+        assert(extension.indicator.progress.value > 2_000_000 / player.track.lengthUs,
+            'visible popup progress must continue updating');
+        extension.indicator.menu.close();
+        player.status = 'Paused';
+        extension.onPlayerChanged(player);
+        const currentLyrics = extension.lyrics;
+        extension.lyricsService.search = async () => { throw new Error('controlled search failure'); };
+        await extension.searchCandidates();
+        assert(extension.lyrics === currentLyrics && extension.indicator.lyricLabels.length === 1,
+            'failed manual search must preserve current lyrics');
+        assert(extension.indicator.statusLabel.visible, 'failed search must show a status message');
+        const artwork = extension.indicator.artwork.get_child();
+        const icon = extension.indicator.playButton.get_child();
+        extension.indicator.setPlayer(player);
+        assert(extension.indicator.artwork.get_child() === artwork && extension.indicator.playButton.get_child() === icon,
+            'unchanged player must reuse artwork and play icon');
+
         player.track.artUrl = 'file:///nonexistent-lyricflow-test-cover';
         extension.onPlayerChanged(player);
         assert(loads.length === 2, 'artwork change must not reload lyrics');

@@ -1,0 +1,44 @@
+{
+  "recordedAt": "2026-11-17T09:35:33.880Z",
+  "rows": [
+    {
+      "scenario": "stale-cache",
+      "trial": 0,
+      "firstVisibleMs": 0.7459999918937683,
+      "completedMs": 1001.2299999892712,
+      "status": "synced"
+    },
+    {
+      "scenario": "slow-primary",
+      "trial": 0,
+      "firstVisibleMs": 2102.150999993086,
+      "status": "synced"
+    },
+    {
+      "scenario": "stale-cache",
+      "trial": 1,
+      "firstVisibleMs": 0.2670000046491623,
+      "completedMs": 1000.623000010848,
+      "status": "synced"
+    },
+    {
+      "scenario": "slow-primary",
+      "trial": 1,
+      "firstVisibleMs": 2101.1019999980927,
+      "status": "synced"
+    },
+    {
+      "scenario": "stale-cache",
+      "trial": 2,
+      "firstVisibleMs": 0.6439999938011169,
+      "completedMs": 1000.9679999947548,
+      "status": "synced"
+    },
+    {
+      "scenario": "slow-primary",
+      "trial": 2,
+      "firstVisibleMs": 2100.9229999929667,
+      "status": "synced"
+    }
+  ]
+}

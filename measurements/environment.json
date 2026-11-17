@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-17",
+  "timezone": "Asia/Shanghai",
+  "baseCommit": "afdf12245b26a4d2454dbcc631116127a7818a7e",
+  "kernel": "Linux 7.0.0-43-generic",
+  "gjs": "gjs 1.88.0",
+  "shell": "GNOME Shell 50.1",
+  "cpuClockTicksPerSecond": 100,
+  "warmupSeconds": 5,
+  "sampleSeconds": 20,
+  "trialsPerScenario": 3,
+  "animationsEnabled": false,
+  "archives": {
+    "baseline": {
+      "sha256": "02c8693cd4cd61c695121cc6d9b86d5115e090d18ba2a6f85fbf72a897598c7e",
+      "name": "lyricflow-baseline.zip"
+    },
+    "cache-requests": {
+      "sha256": "f0708d6d4b994d9d14e1df7f9e459d22ada13b44622f2150aa96ed8cad0b51f9",
+      "name": "lyricflow-cache-requests.zip"
+    },
+    "optimized": {
+      "sha256": "6b8c34e8b44010ec6dd3af92c7ac28848bd9476104483713bff445248ddfff6c",
+      "name": "lyricflow@keen.local.zip"
+    }
+  },
+  "notes": [
+    "Fixed local fixture, no public lyrics server contacted during measurements.",
+    "Shell CPU is auxiliary; CPU cores and clock frequency were not isolated.",
+    "cache-requests saved all samples, but the old harness hit a PerfHelper shutdown error after sampling.",
+    "The harness now disables helper auto-exit handling and explicitly terminates the isolated compositor."
+  ]
+}

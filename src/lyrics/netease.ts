@@ -26,9 +26,15 @@ function isCancelled(cancellable?: unknown): boolean {
 export class NeteaseProvider {
     private readonly session = new Soup.Session({user_agent: USER_AGENT, timeout: 12});
 
-    async collect(track: TrackMetadata, cancellable?: unknown): Promise<LyricsProviderOutcome> {
+    async collect(track: TrackMetadata, cancellable?: unknown, onUpdate?: (outcome: LyricsProviderOutcome) => void): Promise<LyricsProviderOutcome> {
         const errors: string[] = [];
         let successfulRequests = 0;
+        const candidates: LyricsCandidate[] = [];
+        const publish = () => {
+            if (!isCancelled(cancellable)) onUpdate?.({
+                candidates: mergeSearchCandidates(track, candidates), successfulRequests, errors: [...errors],
+            });
+        };
         const query = broadSearchQuery(track);
         if (!query)
             return {candidates: [], successfulRequests, errors};
@@ -58,9 +64,10 @@ export class NeteaseProvider {
             errors.push(`search: ${String(error)}`);
             console.debug(`LyricFlow: NetEase song search failed: ${String(error)}`);
             return {candidates: [], successfulRequests, errors};
+        } finally {
+            publish();
         }
 
-        const candidates: LyricsCandidate[] = [];
         for (const metadata of metadataCandidates) {
             try {
                 const value = await requestJson(
@@ -86,6 +93,8 @@ export class NeteaseProvider {
                     throw error;
                 errors.push(`lyrics:${metadata.id}: ${String(error)}`);
                 console.debug(`LyricFlow: NetEase lyrics fetch failed for candidate ${metadata.id}: ${String(error)}`);
+            } finally {
+                publish();
             }
         }
 

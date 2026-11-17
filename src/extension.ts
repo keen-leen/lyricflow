@@ -12,15 +12,17 @@ import type {
 } from './types.js';
 import {findActiveLyricIndex} from './lyrics/core.js';
 import {LyricsScriptConverter, mapLyricsCandidate} from './lyrics/script.js';
-import {LyricsService} from './lyrics/service.js';
+import {LyricsService, type LyricsLoadUpdate} from './lyrics/service.js';
 import {playbackIdentity} from './player/identity.js';
 import {MprisManager} from './player/mpris.js';
 import {clampPositionUs, displayedPositionUs, lyricSeekPositionUs} from './player/position.js';
 import {LyricIndicator} from './ui/indicator.js';
+import {nextPanelRefreshMs} from './ui/refresh-policy.js';
 import {parseLiquidGlassStrength} from './ui/glass.js';
 
 export default class LyricFlowExtension extends Extension {
     private settings: Gio.Settings | null = null;
+    private running = false;
     private settingsSignalIds: number[] = [];
     private players: MprisManager | null = null;
     private lyricsService: LyricsService | null = null;
@@ -37,15 +39,18 @@ export default class LyricFlowExtension extends Extension {
     private displayGeneration = 0;
     private infoUntilUs = 0;
     private tickSource = 0;
+    private progressTick = false;
     private displayedLyric = -2;
     private previewPositionUs: number | null = null;
 
     override enable(): void {
+        this.running = true;
         const settings = this.getSettings();
         this.settings = settings;
         this.lyricsService = new LyricsService();
         this.scriptConverter = new LyricsScriptConverter();
         this.indicator = new LyricIndicator({
+            menuChanged: () => this.updateUi(),
             previous: () => this.player && this.players?.previous(this.player),
             playPause: () => this.player && this.players?.playPause(this.player),
             next: () => this.player && this.players?.next(this.player),
@@ -89,10 +94,7 @@ export default class LyricFlowExtension extends Extension {
 
         this.players = new MprisManager(player => this.onPlayerChanged(player));
         this.players.start();
-        this.tickSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
-            this.updateUi();
-            return GLib.SOURCE_CONTINUE;
-        });
+        this.updateUi();
     }
 
     private applyAppearance(): void {
@@ -119,6 +121,7 @@ export default class LyricFlowExtension extends Extension {
             this.searchCandidatesRaw = null;
             this.lyricsService?.cancel();
             this.indicator?.setVisible(false);
+            this.scheduleTick();
             return;
         }
 
@@ -151,30 +154,36 @@ export default class LyricFlowExtension extends Extension {
         this.updateUi();
     }
 
+    private async applyLyricsUpdate(player: PlayerState, generation: number, update: LyricsLoadUpdate): Promise<void> {
+        if (generation !== this.trackGeneration || this.trackKey !== playbackIdentity(player)) return;
+        this.lyrics = update.result;
+        this.searchCandidatesRaw = null;
+        this.displayedLyric = -2;
+        this.indicator?.setRequestState(update.refreshing ? this.gettext('Refreshing lyrics…') : null);
+        await this.refreshDisplay();
+    }
+
     private async loadLyrics(player: PlayerState, generation: number, force = false): Promise<void> {
         try {
-            const result = await this.lyricsService?.load(player.track, force);
-            if (!result || generation !== this.trackGeneration || this.trackKey !== playbackIdentity(player))
-                return;
-            this.lyrics = result;
-            this.searchCandidatesRaw = null;
-            this.displayedLyric = -2;
-            await this.refreshDisplay();
+            const result = await this.lyricsService?.load(player.track, force,
+                update => void this.applyLyricsUpdate(player, generation, update));
+            if (result) await this.applyLyricsUpdate(player, generation, {result, refreshing: false});
         } catch (error) {
             if (generation === this.trackGeneration)
                 console.debug(`LyricFlow: lyrics request ended: ${String(error)}`);
         }
     }
 
-    private updateUi(): void {
+    private updateUi(reschedule = true): void {
         const player = this.player;
         const indicator = this.indicator;
-        if (!player || !indicator)
+        if (!this.running || !player || !indicator)
             return;
         const actualPositionUs = this.players?.getPositionUs(player) ?? player.positionUs;
         const positionUs = displayedPositionUs(actualPositionUs, this.previewPositionUs);
         const fraction = player.track.lengthUs > 0 ? positionUs / player.track.lengthUs : 0;
-        indicator.setProgress(fraction, positionUs, player.track.lengthUs);
+        if (indicator.menuOpen)
+            indicator.setProgress(fraction, positionUs, player.track.lengthUs);
         indicator.setPaused(player.status !== 'Playing');
 
         const title = player.track.title || this.gettext('Unknown title');
@@ -198,6 +207,31 @@ export default class LyricFlowExtension extends Extension {
             : (this.displayArtist ? `${this.displayTitle} · ${this.displayArtist}` : this.displayTitle) || trackText;
         indicator.setPanelText(text, index !== this.displayedLyric);
         this.displayedLyric = index;
+        if (reschedule) this.scheduleTick();
+    }
+
+    private scheduleTick(): void {
+        const player = this.player;
+        const indicator = this.indicator;
+        const progressTick = Boolean(this.running && player?.status === 'Playing' && indicator?.menuOpen);
+        if (progressTick && this.progressTick && this.tickSource) return;
+        const lines = this.settings?.get_boolean('show-lyrics') && this.displayLyrics?.status === 'synced'
+            ? this.displayLyrics.timedLines : [];
+        const delay = !this.running || !player || !indicator ? null : progressTick ? 100 : nextPanelRefreshMs(
+            lines, this.players?.getPositionUs(player) ?? player.positionUs,
+            player.track.lengthUs, player.rate, this.settings?.get_int('lyrics-offset-ms') ?? 0,
+            (this.infoUntilUs - GLib.get_monotonic_time()) / 1000, player.status === 'Playing',
+        );
+        if (this.tickSource) GLib.source_remove(this.tickSource);
+        this.tickSource = 0;
+        this.progressTick = progressTick;
+        if (delay === null) return;
+        const source = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+            if (!progressTick) this.tickSource = 0;
+            this.updateUi(!progressTick);
+            return progressTick && this.tickSource === source ? GLib.SOURCE_CONTINUE : GLib.SOURCE_REMOVE;
+        });
+        this.tickSource = source;
     }
 
     private seek(fraction: number): void {
@@ -241,31 +275,35 @@ export default class LyricFlowExtension extends Extension {
         if (!player || !this.lyricsService)
             return;
         const generation = ++this.trackGeneration;
-        this.indicator?.showLoading();
+        this.indicator?.setRequestState(this.gettext('Searching for lyrics…'));
         try {
             const candidates = await this.lyricsService.search(player.track);
             if (generation === this.trackGeneration && this.trackKey === playbackIdentity(player)) {
                 this.searchCandidatesRaw = candidates;
+                this.indicator?.setRequestState(null);
                 await this.refreshDisplay();
             }
         } catch (error) {
             if (generation !== this.trackGeneration)
                 return;
-            this.lyrics = {
-                status: 'error',
-                candidate: null,
-                timedLines: [],
-                plainLines: [],
-                message: String(error),
-            };
-            this.searchCandidatesRaw = null;
-            await this.refreshDisplay();
+            if (this.lyrics && (this.lyrics.status === 'synced' || this.lyrics.status === 'plain')) {
+                this.searchCandidatesRaw = null;
+                this.indicator?.setRequestState(this.gettext('Search failed; keeping current lyrics'));
+                await this.refreshDisplay();
+            } else {
+                this.lyrics = {status: 'error', candidate: null, timedLines: [], plainLines: [], message: String(error)};
+                this.searchCandidatesRaw = null;
+                this.indicator?.setRequestState(null);
+                await this.refreshDisplay();
+            }
         }
     }
 
     private chooseCandidate(candidate: LyricsCandidate): void {
         if (!this.player || !this.lyricsService)
             return;
+        this.trackGeneration++;
+        this.indicator?.setRequestState(null);
         this.lyrics = this.lyricsService.select(this.player.track, candidate);
         this.searchCandidatesRaw = null;
         this.displayedLyric = -2;
@@ -336,6 +374,7 @@ export default class LyricFlowExtension extends Extension {
     }
 
     override disable(): void {
+        this.running = false;
         this.trackGeneration++;
         this.displayGeneration++;
         if (this.tickSource) {

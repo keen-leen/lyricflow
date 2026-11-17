@@ -1,5 +1,7 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Soup from 'gi://Soup?version=3.0';
+import {requestJson} from '../../.test-dist/runtime/lyrics/http.js';
 import {LyricsCache} from '../../.test-dist/runtime/cache/store.js';
 import {LyricsService} from '../../.test-dist/runtime/lyrics/service.js';
 import {trackCacheKey, resultFromCandidate} from '../../.test-dist/runtime/lyrics/core.js';
@@ -41,43 +43,45 @@ const candidate = {id: 1, source: 'lrclib', trackName: 'Song', artistName: 'Arti
 const outcome = (candidates = [], errors = [], successfulRequests = 1) => ({candidates, errors, successfulRequests});
 
 async function testLyricsService() {
-    const cache = new LyricsCache();
     const service = new LyricsService();
+    const cache = service.cache;
     const setOutcomes = (primary, fallback) => {
         service.lrclib.collect = async () => primary;
         service.netease.collect = async () => fallback;
     };
     try {
-        assert(cache.read(track) === null, 'empty cache must miss');
+        assert((await cache.read(track)) === null, 'empty cache must miss');
         setOutcomes(outcome(), outcome([], ['lyrics fetch failed']));
         assert((await service.load(track)).status === 'error', 'partial failure must return error');
-        assert(cache.read(track) === null, 'partial failure must not write a negative cache');
+        assert((await cache.read(track)) === null, 'partial failure must not write a negative cache');
         await rejects(service.search(track), 'manual search must reject partial failure');
 
         setOutcomes(outcome(), outcome());
         assert((await service.load(track)).status === 'not-found', 'completed empty queries must return not-found');
-        assert(cache.read(track)?.fresh, 'completed miss must be cached');
+        assert((await cache.read(track))?.fresh, 'completed miss must be cached');
         assert((await service.search(track)).length === 0, 'completed manual search must return empty candidates');
 
         for (const syncedLyrics of [null, candidate.syncedLyrics]) {
             setOutcomes(outcome([{...candidate, syncedLyrics}]), outcome([], ['provider failed']));
             const result = await service.load(track, true);
             assert(result.status === (syncedLyrics ? 'synced' : 'plain'), 'partial failure must preserve usable text');
-            assert(cache.read(track)?.result.status === result.status, 'usable text must be cached');
+            assert((await cache.read(track))?.result.status === result.status, 'usable text must be cached');
             assert((await service.search(track)).length === 1, 'manual search must preserve candidates despite partial failure');
         }
         let requests = 0;
-        service.lrclib.collect = async () => { requests++; return outcome([candidate]); };
+        service.lrclib.collect = async current => { requests++; return outcome([{...candidate, trackName: current.title}]); };
         const uncached = {...track, title: 'First load'};
         assert((await service.load(uncached)).status === 'synced' && requests === 1, 'first load must query provider');
+        await cache.read(uncached);
         const restartedService = new LyricsService();
-        restartedService.lrclib.collect = async () => { requests++; return outcome([candidate]); };
+        restartedService.lrclib.collect = async current => { requests++; return outcome([{...candidate, trackName: current.title}]); };
         try {
             assert((await restartedService.load(uncached)).status === 'synced' && requests === 1,
                 'new service must reuse saved cache without querying or clearing it');
         } finally {
             restartedService.destroy();
         }
+        await cache.mutations;
         const cachePath = cache.path(track);
         const [ok, bytes] = GLib.file_get_contents(cachePath);
         assert(ok && /\/lyricflow\/lyrics\/[a-f0-9]{64}\.json$/.test(cachePath), 'cache path must use fixed directory and SHA-256');
@@ -89,20 +93,20 @@ async function testLyricsService() {
         setOutcomes(outcome(), outcome([], ['network failed']));
         const stale = await service.load(track);
         assert(stale.status === 'synced' && stale.stale, 'failure must fall back to stale text');
-        assert(!cache.read(track)?.fresh, 'stale fallback must not renew cache');
+        assert(!(await cache.read(track))?.fresh, 'stale fallback must not renew cache');
         setOutcomes(outcome(), outcome());
         assert((await service.load(track)).stale, 'confirmed miss must preserve stale text');
 
         entry.savedAtMs = Date.now();
         entry.trackKey = 'wrong identity';
         GLib.file_set_contents(cachePath, JSON.stringify(entry));
-        assert(cache.read(track) === null, 'cache identity must be checked');
-        cache.write(track, resultFromCandidate(candidate));
-        assert(cache.read({...track, trackId: '/track/other'})?.fresh, 'cache must be shared across track ids');
+        assert((await cache.read(track)) === null, 'cache identity must be checked');
+        await cache.write(track, resultFromCandidate(candidate));
+        assert((await cache.read({...track, trackId: '/track/other'}))?.fresh, 'cache must be shared across track ids');
         const noQueries = {...track, title: 'No queries'};
         setOutcomes(outcome([], [], 0), outcome([], [], 0));
         assert((await service.load(noQueries)).status === 'error', 'no completed queries must be an error');
-        assert(cache.read(noQueries) === null, 'no completed queries must not produce a negative cache');
+        assert((await cache.read(noQueries)) === null, 'no completed queries must not produce a negative cache');
         const pendingTrack = {...track, title: 'Pending'};
         let complete;
         let pendingCancellation;
@@ -112,11 +116,12 @@ async function testLyricsService() {
         };
         const pending = service.load(pendingTrack);
         const pendingRejected = rejects(pending, 'cancelled load must reject');
+        await waitFor(() => Boolean(complete), 'pending load did not start');
         await service.load(track);
         assert(pendingCancellation.is_cancelled(), 'fresh cache hit must cancel previous request');
         complete(outcome([candidate]));
         await pendingRejected;
-        assert(cache.read(pendingTrack) === null, 'cancelled request must not write cache');
+        assert((await cache.read(pendingTrack)) === null, 'cancelled request must not write cache');
 
         const search = service.search(pendingTrack);
         const searchRejected = rejects(search, 'cancelled manual search must reject');
@@ -127,6 +132,149 @@ async function testLyricsService() {
     } finally {
         service.destroy();
     }
+}
+
+async function testCacheIO() {
+    const cache = new LyricsCache();
+    cache.directory = GLib.build_filenamev([GLib.get_user_cache_dir(), 'cache-io-test']);
+    const first = resultFromCandidate(candidate);
+    const second = {...first, timedLines: [{timeMs: 1000, text: 'Latest selection'}]};
+    try {
+        const write1 = cache.write(track, first);
+        const write2 = cache.write(track, second);
+        assert((await cache.read(track))?.result.timedLines[0].text === 'Latest selection', 'read must wait for latest queued write');
+        await Promise.all([write1, write2]);
+        const token = new Gio.Cancellable();
+        const cancelled = cache.write(track, first, token);
+        token.cancel();
+        await cancelled;
+        assert((await cache.read(track))?.result.timedLines[0].text === 'Latest selection', 'cancelled write must not replace latest result');
+        const oversized = {...track, title: 'Oversized'};
+        await cache.write(oversized, {...first, plainLines: ['x'.repeat(1024 * 1024)]});
+        assert(await cache.read(oversized) === null, 'oversized cache write must be skipped');
+        const path = cache.path(track);
+        GLib.file_set_contents(path, '{invalid json');
+        assert(await cache.read(track) === null, 'corrupt JSON must be a cache miss');
+        GLib.file_set_contents(path, 'x'.repeat(1024 * 1024 + 1));
+        assert(await cache.read(track) === null, 'oversized file must be a cache miss');
+    } finally { cache.destroy(); }
+
+    const quota = new LyricsCache();
+    quota.directory = GLib.build_filenamev([GLib.get_user_cache_dir(), 'quota-test']);
+    GLib.mkdir_with_parents(quota.directory, 0o700);
+    for (let i = 0; i < 1001; i++) {
+        const name = `${i.toString(16).padStart(64, '0')}.json`;
+        GLib.file_set_contents(GLib.build_filenamev([quota.directory, name]), JSON.stringify({
+            savedAtMs: i + 1, trackKey: 'quota', result: i === 1000
+                ? {status: 'not-found', candidate: null, timedLines: [], plainLines: []} : first,
+        }));
+    }
+    try {
+        await quota.write(track, first);
+        assert(!GLib.file_test(GLib.build_filenamev([quota.directory, `${'0'.repeat(64)}.json`]), GLib.FileTest.EXISTS),
+            'quota must remove oldest text after expired negative');
+        assert(!GLib.file_test(GLib.build_filenamev([quota.directory, `${(1000).toString(16).padStart(64, '0')}.json`]), GLib.FileTest.EXISTS),
+            'quota must remove expired negative first');
+        assert(GLib.file_test(GLib.build_filenamev([quota.directory, `${'1'.padStart(64, '0')}.json`]), GLib.FileTest.EXISTS),
+            'old text within quota must remain for offline playback');
+        assert((await quota.read(track))?.result.status === 'synced', 'cleanup must preserve newly written entry');
+    } finally { quota.destroy(); }
+    console.log('PASS asynchronous cache IO, validation, cancellation and quota cleanup');
+}
+
+async function testRequestScheduling() {
+    const services = [];
+    const create = () => { const service = new LyricsService(); services.push(service); return service; };
+    const matching = current => ({...candidate, trackName: current.title});
+    try {
+        const quick = create();
+        let fallbacks = 0;
+        quick.lrclib.collect = async current => outcome([matching(current)]);
+        quick.netease.collect = async () => { fallbacks++; return outcome(); };
+        assert((await quick.load({...track, title: 'Quick'})).status === 'synced' && fallbacks === 0,
+            'fast synchronized primary must avoid fallback');
+        const delayed = create();
+        let primaryToken;
+        const started = GLib.get_monotonic_time();
+        delayed.lrclib.collect = (_current, token) => { primaryToken = token; return new Promise(() => {}); };
+        delayed.netease.collect = async current => { fallbacks++; return outcome([matching(current)]); };
+        assert((await delayed.load({...track, title: 'Delayed fallback'})).status === 'synced', 'fallback must win over a stalled primary');
+        const elapsedMs = (GLib.get_monotonic_time() - started) / 1000;
+        assert(elapsedMs >= 1950 && elapsedMs < 3000 && primaryToken.is_cancelled(), 'fallback must start after two seconds and cancel primary');
+
+        const expired = create();
+        const expiredTrack = {...track, title: 'Expired visible'};
+        await expired.cache.write(expiredTrack, resultFromCandidate(matching(expiredTrack)));
+        await expired.cache.mutations;
+        const cachePath = expired.cache.path(expiredTrack);
+        const [, contents] = GLib.file_get_contents(cachePath);
+        const entry = JSON.parse(new TextDecoder().decode(contents));
+        entry.savedAtMs = 0;
+        GLib.file_set_contents(cachePath, JSON.stringify(entry));
+        let complete;
+        expired.lrclib.collect = () => new Promise(resolve => { complete = resolve; });
+        expired.netease.collect = async () => outcome();
+        const updates = [];
+        const refresh = expired.load(expiredTrack, false, update => updates.push(update));
+        await waitFor(() => Boolean(complete), 'refresh did not start');
+        assert(updates[0]?.result.status === 'synced' && updates[0].refreshing, 'stale text must be published before network completion');
+        complete(outcome([{...matching(expiredTrack), syncedLyrics: null}]));
+        assert((await refresh).status === 'synced', 'plain result must not replace synchronized cache');
+
+        const timeouts = [create(), create(), create(), create()];
+        const timeoutStart = GLib.get_monotonic_time();
+        const jobs = timeouts.map((service, index) => {
+            service.lrclib.collect = (current, _token, update) => {
+                update(outcome(index === 1 ? [] : [{...matching(current), syncedLyrics: null, instrumental: index === 3, plainLyrics: index === 3 ? null : 'Text'}]));
+                return new Promise(() => {});
+            };
+            service.netease.collect = (current, _token, update) => {
+                if (index === 3) update(outcome([{...matching(current), source: 'netease', syncedLyrics: null, plainLyrics: null, instrumental: true}]));
+                return new Promise(() => {});
+            };
+            const current = {...track, title: `Timeout ${index}`};
+            if (index === 2) return service.search(current).then(candidates => {
+                assert(candidates.length === 1, 'manual deadline must retain partial candidates');
+            });
+            return service.load(current).then(async result => {
+                assert(result.status === (index === 0 ? 'plain' : index === 3 ? 'instrumental' : 'error'), 'timeout must preserve partial text or return error');
+                if (index === 1 || index === 3) assert(await service.cache.read(current) === null, 'timeout must not write a negative cache');
+            });
+        });
+        await Promise.all(jobs);
+        const timeoutMs = (GLib.get_monotonic_time() - timeoutStart) / 1000;
+        assert(timeoutMs >= 14900 && timeoutMs < 16500, 'queries must share a fifteen-second deadline');
+        const measurements = {fallbackMs: elapsedMs, deadlineMs: timeoutMs, staleShownBeforeNetwork: true};
+        console.log(`REQUEST_MEASUREMENTS ${JSON.stringify(measurements)}`);
+        const output = GLib.getenv('LYRICFLOW_REQUEST_MEASUREMENTS');
+        if (output) GLib.file_set_contents(output, JSON.stringify(measurements, null, 2));
+        console.log('PASS progressive cache, two-second fallback and fifteen-second deadline');
+    } finally {
+        for (const service of services) service.destroy();
+    }
+}
+
+async function testRetryCancellation() {
+    const server = new Soup.Server();
+    const session = new Soup.Session();
+    let requests = 0;
+    server.add_handler(null, (_server, message) => { requests++; message.set_status(503, null); });
+    server.listen_local(0, Soup.ServerListenOptions.IPV4_ONLY);
+    const url = server.get_uris()[0].to_string();
+    try {
+        const token = new Gio.Cancellable();
+        const promise = requestJson(session, url, 'Retry cancellation test', token);
+        const rejection = rejects(promise, 'cancelled retry must reject');
+        await waitFor(() => requests === 1, 'local HTTP request not received');
+        await sleep(30);
+        const started = GLib.get_monotonic_time();
+        token.cancel();
+        await rejection;
+        assert((GLib.get_monotonic_time() - started) / 1000 < 100, 'retry wait must cancel promptly');
+        await sleep(320);
+        assert(requests === 1, 'cancelled retry must not send another request');
+        console.log('PASS cancellable HTTP retry');
+    } finally { session.abort(); server.disconnect(); }
 }
 
 const PATH = '/org/mpris/MediaPlayer2';
@@ -283,3 +431,6 @@ async function testMpris() {
 
 await testLyricsService();
 await testMpris();
+await testCacheIO();
+await testRequestScheduling();
+await testRetryCancellation();

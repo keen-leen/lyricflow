@@ -42,10 +42,15 @@ function logCandidates(track: TrackMetadata, stage: string, candidates: LyricsCa
 export class LrclibProvider {
     private readonly session = new Soup.Session({user_agent: USER_AGENT, timeout: 12});
 
-    async collect(track: TrackMetadata, cancellable?: unknown): Promise<LyricsProviderOutcome> {
+    async collect(track: TrackMetadata, cancellable?: unknown, onUpdate?: (outcome: LyricsProviderOutcome) => void): Promise<LyricsProviderOutcome> {
         const groups: LyricsCandidate[][] = [];
         const errors: string[] = [];
         let successfulRequests = 0;
+        const publish = () => {
+            if (!isCancelled(cancellable)) onUpdate?.({
+                candidates: mergeSearchCandidates(track, ...groups), successfulRequests, errors: [...errors],
+            });
+        };
 
         const exactQuery = queryParams({
             track_name: track.title,
@@ -76,6 +81,8 @@ export class LrclibProvider {
             else
                 errors.push(`exact: ${String(error)}`);
             console.debug(`LyricFlow: LRCLIB exact search did not produce synchronized lyrics: ${String(error)}`);
+        } finally {
+            publish();
         }
 
         try {
@@ -98,6 +105,8 @@ export class LrclibProvider {
                 throw error;
             errors.push(`structured: ${String(error)}`);
             console.debug(`LyricFlow: LRCLIB structured search failed: ${String(error)}`);
+        } finally {
+            publish();
         }
 
         const broadQuery = broadSearchQuery(track);
@@ -118,6 +127,8 @@ export class LrclibProvider {
                     throw error;
                 errors.push(`broad: ${String(error)}`);
                 console.debug(`LyricFlow: LRCLIB broad search failed: ${String(error)}`);
+            } finally {
+                publish();
             }
         }
 

@@ -169,3 +169,12 @@ msgstr "LRCLIB 与网易云音乐"
 
 msgid "Song metadata is sent to LRCLIB and, when synchronized lyrics are unavailable, to NetEase. No account, cookie, playback history, or lyric text is sent."
 msgstr "歌曲元数据会发送给 LRCLIB；没有同步歌词时会发送给网易云音乐。不会发送账户、Cookie、播放记录或歌词正文。"
+
+msgid "Refreshing lyrics…"
+msgstr "正在刷新歌词…"
+
+msgid "Search failed; keeping current lyrics"
+msgstr "搜索失败，继续使用当前歌词"
+
+msgid "Cached lyrics"
+msgstr "缓存歌词"
