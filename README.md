@@ -34,36 +34,38 @@ LyricFlow 是一个面向 **GNOME Shell 50** 的顶栏同步歌词扩展。在�
 
 请在已登录 GNOME 图形会话的普通用户终端中操作。安装到用户目录不需要 `sudo`；下方只有系统依赖安装使用管理员权限。
 
-### 方式一：从源码构建并安装
-
-#### 1. 检查桌面环境
+### 检查桌面环境
 
 ```bash
 gnome-shell --version
 printf '%s\n' "$XDG_SESSION_TYPE"
 ```
 
-确认 GNOME Shell 主版本为 50。Wayland 图形会话可按下述步骤安装；安装完成后通过注销、重新登录加载扩展。
+确认 GNOME Shell 主版本为 50。扩展运行需要 GJS 和 Soup 3、GTK 4、libadwaita 的 GI 类型信息。在 Ubuntu 26.04 上如缺少这些组件，可执行：
 
-#### 2. 安装依赖
+```bash
+sudo apt install gjs gir1.2-soup-3.0 gir1.2-gtk-4.0 gir1.2-adw-1
+```
 
-在 Ubuntu 26.04 上准备构建与测试工具：
+### 方式一：下载 Release 安装包
+
+从 [GitHub Releases](https://github.com/keen-leen/lyricflow/releases/latest) 的 Assets 下载 `lyricflow@keen.local.zip`，然后按下文安装。使用这个包无需安装 Node.js 或 npm。
+
+### 方式二：从源码构建
+
+在 Ubuntu 26.04 上安装额外的构建与打包工具：
 
 ```bash
 sudo apt update
-sudo apt install git make zip gettext libglib2.0-bin nodejs npm \
-  gjs dbus-daemon gir1.2-soup-3.0 gir1.2-gtk-4.0 gir1.2-adw-1
+sudo apt install git make zip gettext libglib2.0-bin nodejs npm
 ```
 
 依赖的用途如下：
 
 | 类型 | 组件 | 用途 |
 | --- | --- | --- |
-| 桌面运行环境 | GNOME Shell 50、GJS | 加载扩展；`gnome-extensions` 命令由 GNOME Shell 提供 |
-| 歌词请求与设置页 | Soup 3、GTK 4、libadwaita 的 GI 类型信息 | 发起 HTTP 请求、显示原生设置窗口 |
 | 源码构建 | Git、Node.js、npm、Make | 获取源码、安装锁定依赖、编译 TypeScript |
 | 资源与打包 | `glib-compile-schemas`、`msgfmt`、`zip` | 编译设置 schema、翻译文件并生成 ZIP |
-| 集成测试 | `gjs`、`dbus-run-session` | 在独立 D-Bus 会话中执行运行时测试 |
 
 检查 Node.js 和 npm：
 
@@ -74,26 +76,19 @@ npm --version
 
 项目已在 **Node.js 26.13.1、npm 11.20.0、GJS 1.88.0** 下验证。这是已测试的工具组合，不代表已验证所有较低版本；若使用其他版本，应以构建和测试结果为准。安装系统包后请以实际输出确认版本。
 
-#### 3. 获取源码并构建
+获取源码并构建：
 
 ```bash
 git clone https://github.com/keen-leen/lyricflow.git
 cd lyricflow
-npm ci
 make pack
 ```
 
-`npm ci` 根据仓库中的 `package-lock.json` 安装依赖。`make pack` 会依次完成源码与资源构建、单元及集成测试，再生成：
+`make pack` 按需通过 `npm ci` 安装锁定依赖，将源码与资源构建到 `dist/`，并在项目根目录生成 `lyricflow@keen.local.zip`。开发者可另行运行 `make test`。
 
-```text
-lyricflow@keen.local.zip
-```
+### 安装 ZIP 并启用
 
-构建产物位于 `dist/`，测试编译产物位于 `.test-dist/`。集成测试需要能够创建本地 D-Bus 和 HTTP socket，因此应在正常本地环境中执行。
-
-#### 4. 安装 ZIP
-
-在项目目录执行：
+在 ZIP 所在目录执行：
 
 ```bash
 gnome-extensions install --force ./lyricflow@keen.local.zip
@@ -107,8 +102,6 @@ gnome-extensions install --force ./lyricflow@keen.local.zip
 
 如果设置了 `XDG_DATA_HOME`，则位于该目录下的 `gnome-shell/extensions/lyricflow@keen.local/`。
 
-#### 5. 注销、重新登录并启用
-
 保存正在进行的工作，通过桌面会话菜单注销后重新登录，再执行：
 
 ```bash
@@ -117,25 +110,6 @@ gnome-extensions info lyricflow@keen.local
 ```
 
 随后打开一个支持 MPRIS 的播放器并播放歌曲。顶栏默认位于中央；没有播放器或有效歌曲标题时，LyricFlow 会隐藏，因此启用后不一定立即看到歌词区域。
-
-### 方式二：安装已有 ZIP
-
-如果你已取得构建好的 `lyricflow@keen.local.zip`，不需要安装 Node.js、npm 或克隆源码。仍需满足前面的 GNOME 运行环境与 GI 组件要求。
-
-在 ZIP 所在目录执行：
-
-```bash
-gnome-extensions install --force ./lyricflow@keen.local.zip
-```
-
-注销并重新登录，然后执行：
-
-```bash
-gnome-extensions enable lyricflow@keen.local
-gnome-extensions info lyricflow@keen.local
-```
-
-本说明不假设仓库已提供预编译 Release；源码构建是获取安装包的完整路径。
 
 ## 首次使用与设置
 
@@ -182,12 +156,16 @@ gnome-extensions prefs lyricflow@keen.local
 
 ### 更新已有安装
 
-在源码目录中更新代码后，重新安装依赖并打包：
+从 [GitHub Releases](https://github.com/keen-leen/lyricflow/releases/latest) 下载新版 ZIP。也可以在源码目录中更新并重新打包：
 
 ```bash
 git pull
-npm ci
 make pack
+```
+
+在新版 ZIP 所在目录执行：
+
+```bash
 gnome-extensions disable lyricflow@keen.local
 gnome-extensions install --force ./lyricflow@keen.local.zip
 ```
@@ -333,9 +311,9 @@ Shell 主版本不是 50 时不在当前兼容声明内。不要通过修改版�
 
 ### 构建或测试失败
 
-`npm ci` 需要能访问依赖来源，并要求锁文件与依赖声明一致。`make pack` 还会运行需要本地 socket 的集成测试；如果在受限容器或沙箱中遇到 D-Bus 绑定被拒绝，应在允许创建这些 socket 的环境中运行。
+`make pack` 首次安装依赖时需要访问 npm 依赖来源，并要求锁文件与依赖声明一致。若打包失败，检查 `glib-compile-schemas`、`msgfmt` 和 `zip` 是否可用，并查看构建输出中最先出现的错误。
 
-若缺少命令，回到安装依赖步骤检查 `glib-compile-schemas`、`msgfmt`、`gjs` 和 `dbus-run-session`，并查看构建输出中最先出现的错误。
+`make test` 需要 `gjs` 和 `dbus-run-session`。如果在受限容器或沙箱中遇到 D-Bus 绑定被拒绝，请在允许创建本地 D-Bus 和 HTTP socket 的环境中运行测试。
 
 ### 查看运行日志
 
@@ -356,12 +334,12 @@ journalctl -f -o cat /usr/bin/gnome-shell
 | `make check` | TypeScript 类型检查，不生成编译输出 |
 | `make build` | 编译源码、schema、翻译并复制运行资源到 `dist/` |
 | `make test` | 运行单元测试和隔离运行时集成测试 |
-| `make pack` | 构建、测试并生成安装 ZIP |
+| `make pack` | 构建并生成安装 ZIP |
 | `make shell-test` | 先打包，再在临时环境安装扩展并运行无窗口 Shell 回归 |
-| `make install` | 构建、测试、打包并安装；仍需按安装章节重新登录加载 |
+| `make install` | 构建、打包并安装，随后按安装章节重新登录加载 |
 | `make clean` | 清理构建产物、测试编译产物和安装包 |
 
-`make test` 对应 `npm test`，测试编译到 `.test-dist/`，不依赖现有 `dist/`。运行时测试使用临时缓存目录、独立 D-Bus 会话和本地 HTTP 服务，覆盖缓存、请求调度与播放器生命周期。
+`make test` 对应 `npm test`，测试编译到 `.test-dist/`，不依赖现有 `dist/`。运行时测试使用临时缓存目录、独立 D-Bus 会话和本地 HTTP 服务，覆盖缓存、请求调度与播放器生命周期。在 Ubuntu 26.04 上可通过 `sudo apt install dbus-daemon` 安装 `dbus-run-session`。
 
 `make shell-test` 需要 GNOME Shell 50 提供的 `gnome-shell-test-tool` 及可运行的无窗口图形环境，覆盖切歌保护、进度更新、歌词点击与滚动定位。
 
@@ -381,7 +359,7 @@ gjs -m tests/integration/mock-player.js
 
 LyricFlow is a GNOME Shell 50 extension for synchronized lyrics in the top bar. Its popup includes artwork, playback controls, a seekable progress bar and full lyrics. Players must expose song metadata through MPRIS.
 
-Build with `npm ci` and `make pack`, install `lyricflow@keen.local.zip` using `gnome-extensions install --force`, then log out and back in before enabling `lyricflow@keen.local`. Ubuntu 26.04 / GNOME Shell 50.1 is the tested desktop environment.
+Download `lyricflow@keen.local.zip` from [GitHub Releases](https://github.com/keen-leen/lyricflow/releases/latest) or build it with `make pack`. Install it with `gnome-extensions install --force ./lyricflow@keen.local.zip`, then log out and back in before enabling `lyricflow@keen.local`. Ubuntu 26.04 / GNOME Shell 50.1 is the tested desktop environment.
 
 Lyrics are fetched from LRCLIB with a delayed NetEase fallback. Cached text is shown before background refresh; network queries share a 15-second budget. Chinese script conversion runs locally. The installed extension requires no separate background service or Node.js runtime.
 
