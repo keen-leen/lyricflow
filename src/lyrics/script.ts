@@ -7,11 +7,14 @@ import type {
 } from '../types.js';
 
 type TextConverter = (text: string) => string;
-type OpenCcModule = {
-    Converter(options: {from: string; to: string}): TextConverter;
-};
+type OpenCcPreset = Parameters<typeof import('../vendor/core.js').ConverterBuilder>[0];
 
 const identity: TextConverter = text => text;
+
+async function buildConverter(preset: Promise<OpenCcPreset>, from: string, to: string): Promise<TextConverter> {
+    const [{ConverterBuilder}, locale] = await Promise.all([import('../vendor/core.js'), preset]);
+    return ConverterBuilder(locale)({from, to});
+}
 
 export function mapLyricsResult(result: LyricsResult, convert: TextConverter): LyricsResult {
     return {
@@ -34,30 +37,15 @@ export function mapLyricsCandidate(
 }
 
 export class LyricsScriptConverter {
-    private simplified: TextConverter | null = null;
-    private traditional: TextConverter | null = null;
     private simplifiedPromise: Promise<TextConverter> | null = null;
     private traditionalPromise: Promise<TextConverter> | null = null;
 
     private getConverter(mode: LyricsScriptMode): Promise<TextConverter> {
         if (mode === 'original')
             return Promise.resolve(identity);
-        if (mode === 'simplified') {
-            if (this.simplified)
-                return Promise.resolve(this.simplified);
-            this.simplifiedPromise ??= import('../vendor/t2cn.js').then(module => {
-                this.simplified = (module as OpenCcModule).Converter({from: 't', to: 'cn'});
-                return this.simplified;
-            });
-            return this.simplifiedPromise;
-        }
-        if (this.traditional)
-            return Promise.resolve(this.traditional);
-        this.traditionalPromise ??= import('../vendor/cn2t.js').then(module => {
-            this.traditional = (module as OpenCcModule).Converter({from: 'cn', to: 't'});
-            return this.traditional;
-        });
-        return this.traditionalPromise;
+        if (mode === 'simplified')
+            return this.simplifiedPromise ??= buildConverter(import('../vendor/preset/t2cn.js'), 't', 'cn');
+        return this.traditionalPromise ??= buildConverter(import('../vendor/preset/cn2t.js'), 'cn', 't');
     }
 
     async convertText(text: string, mode: LyricsScriptMode): Promise<string> {

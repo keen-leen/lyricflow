@@ -4,9 +4,7 @@ import Soup from 'gi://Soup?version=3.0';
 import type {LyricsCandidate, LyricsProviderOutcome, LyricsResult, TrackMetadata} from '../types.js';
 import {
     broadSearchQuery,
-    candidateMatch,
     isQualifiedCandidate,
-    isUsableLyricsCandidate,
     lyricsCandidateQuality,
     mergeSearchCandidates,
     resultFromCandidate,
@@ -57,7 +55,6 @@ export class NeteaseProvider {
                 .filter(candidate => isQualifiedCandidate(track, candidate))
                 .sort((a, b) => scoreCandidate(track, b) - scoreCandidate(track, a))
                 .slice(0, MAX_LYRIC_REQUESTS);
-            console.debug(`LyricFlow: NetEase song search kept ${metadataCandidates.length} qualified candidates`);
         } catch (error) {
             if (isCancelled(cancellable))
                 throw error;
@@ -78,15 +75,10 @@ export class NeteaseProvider {
                 );
                 successfulRequests++;
                 const candidate = addNeteaseLyrics(metadata, value);
-                const match = candidateMatch(track, candidate);
-                console.debug(
-                    `LyricFlow: NetEase candidate netease:${candidate.id}`
-                    + ` quality=${lyricsCandidateQuality(candidate)}`
-                    + ` score=${match.score.toFixed(3)} qualified=${match.qualified}`,
-                );
-                if (isUsableLyricsCandidate(candidate))
+                const quality = lyricsCandidateQuality(candidate);
+                if (quality > 0)
                     candidates.push(candidate);
-                if (lyricsCandidateQuality(candidate) === 3)
+                if (quality === 3)
                     break;
             } catch (error) {
                 if (isCancelled(cancellable))

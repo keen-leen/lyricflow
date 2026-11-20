@@ -327,7 +327,15 @@ async function checkScrolling() {
     indicator.menu.open();
     await Scripting.sleep(500);
     assertCentered(indicator, 15);
-    indicator.menu.close();
+
+    indicator.setPanelText('Disable during a pending marquee');
+    indicator.setActiveLyric(16);
+    assert(indicator.marqueeSource && indicator.centerLaterId, 'disable fixture must have pending UI work');
+    assert(Main.extensionManager.disableExtension(UUID), 'extension manager did not disable LyricFlow');
+    await Scripting.sleep(100);
+    assert(indicator.disposed && !indicator.marqueeSource && !indicator.centerLaterId,
+        'disable must destroy the indicator and clear pending UI work');
+    assert(!Main.panel.statusArea[UUID], 'disable must remove the indicator from the top bar');
 }
 
 async function executeTest() {

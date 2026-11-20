@@ -353,6 +353,10 @@ gjs -m tests/integration/mock-player.js
 
 源码按职责分布在 `src/player/`（播放器）、`src/lyrics/`（查询与歌词处理）、`src/cache/`（缓存）、`src/ui/`（界面），由 `src/extension.ts` 组织生命周期；`src/prefs.ts` 提供设置窗口。
 
+排查歌词请求时，从 `src/lyrics/service.ts` 检查是否命中缓存、是否启动备用源，以及请求是否因切歌或截止时间被取消；各歌词源与 `src/lyrics/http.ts` 会为失败阶段提供诊断信息。排查缓存时，先确认 `src/cache/store.ts` 计算的曲目标识和 `src/cache/policy.ts` 的有效期，再检查缓存文件是否通过结构校验。
+
+禁用扩展由 `src/extension.ts` 统一清理。扩展移除刷新定时器并断开设置监听，播放器管理器取消 D-Bus 调用并解除订阅，歌词服务取消请求和缓存 I/O，界面移除跑马灯和滚动定位任务并销毁组件。请求和文字转换完成时还会检查生成号，避免旧结果更新界面。
+
 性能脚本位于 `tests/integration/shell-benchmark.js`。具体夹具、原始数据、测量限制和复现步骤见 [缓存、请求与 UI 测量报告](measurements/README.md)。这些是受控实验结果，不作为所有播放器、网络和桌面环境的速度保证。
 
 ## English
@@ -365,6 +369,6 @@ Lyrics are fetched from LRCLIB with a delayed NetEase fallback. Cached text is s
 
 ## 许可证与项目说明
 
-项目采用 **GPL-3.0-or-later**，见 [LICENSE](LICENSE)。打包使用的 `opencc-js` 1.4.2 及词典包含 MIT 与 Apache-2.0 许可内容，对应许可证和第三方声明随扩展 ZIP 一并提供。
+项目采用 **GPL-3.0-or-later**，见 [LICENSE](LICENSE)。简繁转换使用 `opencc-js` 1.4.2 的独立 ES 模块、转换预设和词典，对应 MIT 与 Apache-2.0 许可证和第三方声明随扩展 ZIP 一并提供。
 
 本项目为 AI 辅助开发的个人项目。沿用当前维护约定：在理解代码并具备维护能力之前，请勿将其上传到 extensions.gnome.org。

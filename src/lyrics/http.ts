@@ -41,7 +41,7 @@ function send(
     session: Soup.Session,
     url: string,
     cancellable?: unknown,
-): Promise<{value: unknown; status: number}> {
+): Promise<unknown> {
     const message = Soup.Message.new('GET', url);
     return new Promise((resolve, reject) => {
         session.send_and_read_async(
@@ -55,7 +55,7 @@ function send(
                     if (status < 200 || status >= 300)
                         throw new HttpError(status, `HTTP ${status}`);
                     const text = new TextDecoder().decode(bytes?.get_data() ?? new Uint8Array());
-                    resolve({value: JSON.parse(text), status});
+                    resolve(JSON.parse(text));
                 } catch (error) {
                     reject(error);
                 }
@@ -72,9 +72,7 @@ export async function requestJson(
 ): Promise<unknown> {
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
-            const response = await send(session, url, cancellable);
-            console.debug(`LyricFlow: ${stage} HTTP ${response.status}${attempt ? ' after retry' : ''}`);
-            return response.value;
+            return await send(session, url, cancellable);
         } catch (error) {
             if (isCancelled(cancellable))
                 throw error;

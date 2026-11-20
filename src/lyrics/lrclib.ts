@@ -4,7 +4,6 @@ import Soup from 'gi://Soup?version=3.0';
 import type {LyricsCandidate, LyricsProviderOutcome, LyricsResult, TrackMetadata} from '../types.js';
 import {
     broadSearchQuery,
-    candidateMatch,
     decodeLyricsCandidate,
     mergeSearchCandidates,
     needsBroadSearch,
@@ -23,20 +22,6 @@ function decodeCandidateList(value: unknown): LyricsCandidate[] {
 
 function isCancelled(cancellable?: unknown): boolean {
     return cancellable instanceof Gio.Cancellable && cancellable.is_cancelled();
-}
-
-function logCandidates(track: TrackMetadata, stage: string, candidates: LyricsCandidate[]): void {
-    console.debug(`LyricFlow: ${stage} decoded ${candidates.length} candidates`);
-    for (const candidate of candidates.slice(0, 8)) {
-        const match = candidateMatch(track, candidate);
-        console.debug(
-            `LyricFlow: ${stage} candidate lrclib:${candidate.id}`
-            + ` score=${match.score.toFixed(3)} title=${match.title.toFixed(3)}`
-            + ` artist=${match.artist.toFixed(3)} album=${match.album.toFixed(3)}`
-            + ` durationDelta=${match.durationDifference?.toFixed(1) ?? 'unknown'}`
-            + ` qualified=${match.qualified}`,
-        );
-    }
 }
 
 export class LrclibProvider {
@@ -69,7 +54,6 @@ export class LrclibProvider {
             const candidate = decodeLyricsCandidate(value);
             const candidates = candidate ? [candidate] : [];
             groups.push(candidates);
-            logCandidates(track, 'LRCLIB exact search', candidates);
             const merged = mergeSearchCandidates(track, ...groups);
             if (!needsBroadSearch(track, merged))
                 return {candidates: merged, successfulRequests, errors};
@@ -78,9 +62,10 @@ export class LrclibProvider {
                 throw error;
             if (error instanceof HttpError && error.status === 404)
                 successfulRequests++;
-            else
+            else {
                 errors.push(`exact: ${String(error)}`);
-            console.debug(`LyricFlow: LRCLIB exact search did not produce synchronized lyrics: ${String(error)}`);
+                console.debug(`LyricFlow: LRCLIB exact search failed: ${String(error)}`);
+            }
         } finally {
             publish();
         }
@@ -96,7 +81,6 @@ export class LrclibProvider {
             successfulRequests++;
             const candidates = decodeCandidateList(value);
             groups.push(candidates);
-            logCandidates(track, 'LRCLIB structured search', candidates);
             const merged = mergeSearchCandidates(track, ...groups);
             if (!needsBroadSearch(track, merged))
                 return {candidates: merged, successfulRequests, errors};
@@ -121,7 +105,6 @@ export class LrclibProvider {
                 successfulRequests++;
                 const candidates = decodeCandidateList(value);
                 groups.push(candidates);
-                logCandidates(track, 'LRCLIB broad search', candidates);
             } catch (error) {
                 if (isCancelled(cancellable))
                     throw error;

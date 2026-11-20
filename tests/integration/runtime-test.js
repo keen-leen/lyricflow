@@ -128,6 +128,19 @@ async function testLyricsService() {
         service.cancel();
         complete(outcome([candidate]));
         await searchRejected;
+
+        const disableTrack = {...track, title: 'Disable during query'};
+        complete = null;
+        const whileDisabling = service.load(disableTrack);
+        const disabledRequest = rejects(whileDisabling, 'destroyed service must reject an active load');
+        await waitFor(() => Boolean(complete), 'disable fixture did not start a query');
+        service.destroy();
+        assert(pendingCancellation.is_cancelled(), 'destroy must cancel the active provider');
+        complete(outcome([{...candidate, trackName: disableTrack.title}]));
+        await disabledRequest;
+        await cache.mutations;
+        assert(!GLib.file_test(cache.path(disableTrack), GLib.FileTest.EXISTS),
+            'late provider result after destroy must not create a cache entry');
         console.log('PASS lyrics service and cache');
     } finally {
         service.destroy();
