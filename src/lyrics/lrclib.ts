@@ -12,7 +12,7 @@ import {
 import {HttpError, queryParams, requestJson} from './http.js';
 
 const BASE_URL = 'https://lrclib.net';
-const USER_AGENT = 'LyricFlow/0.1.1 (https://github.com/keen-leen/lyricflow)';
+const USER_AGENT = 'LyricFlow/0.1.3 (https://github.com/keen-leen/lyricflow)';
 
 function decodeCandidateList(value: unknown): LyricsCandidate[] {
     return Array.isArray(value)

@@ -35,7 +35,8 @@ shell-test: pack
 
 pack: build
 	rm -f $(PACKAGE)
-	cd $(BUILD_DIR) && zip -9r ../$(PACKAGE) .
+	cd $(BUILD_DIR) && zip -9r ../$(PACKAGE) . -x \
+		schemas/gschemas.compiled types.js vendor/from/index.js vendor/to/index.js
 
 install: pack
 	gnome-extensions install --force $(PACKAGE)

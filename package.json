@@ -1,6 +1,6 @@
 {
   "name": "lyricflow",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A polished, synchronized lyrics extension for the GNOME top bar.",
   "type": "module",
   "private": true,

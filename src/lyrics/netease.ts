@@ -14,7 +14,7 @@ import {queryParams, requestJson} from './http.js';
 import {addNeteaseLyrics, decodeNeteaseSearch} from './netease-core.js';
 
 const BASE_URL = 'https://music.163.com';
-const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) LyricFlow/0.1.0';
+const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) LyricFlow/0.1.3';
 const MAX_LYRIC_REQUESTS = 5;
 
 function isCancelled(cancellable?: unknown): boolean {
